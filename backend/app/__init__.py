@@ -1,0 +1,1 @@
+"""TrustAI backend application."""

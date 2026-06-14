@@ -1,0 +1,11 @@
+{
+  "name": "trustai",
+  "private": true,
+  "scripts": {
+    "setup": "powershell -ExecutionPolicy Bypass -File scripts/install-backend.ps1",
+    "dev": "powershell -ExecutionPolicy Bypass -File scripts/start-local.ps1",
+    "dev:backend": "powershell -ExecutionPolicy Bypass -File scripts/start-backend.ps1",
+    "dev:frontend": "powershell -ExecutionPolicy Bypass -File scripts/start-frontend.ps1",
+    "free-port": "powershell -ExecutionPolicy Bypass -File scripts/free-port.ps1"
+  }
+}

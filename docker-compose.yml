@@ -1,0 +1,54 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-trustai}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-trustai}
+      POSTGRES_DB: ${POSTGRES_DB:-trustai}
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-trustai}"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  backend:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    ports:
+      - "8000:8000"
+    environment:
+      DATABASE_URL: ${DATABASE_URL:-postgresql+asyncpg://trustai:trustai@postgres:5432/trustai}
+      TRUSTAI_MODEL_PATH: ${TRUSTAI_MODEL_PATH:-/app/models/Qwen2.5-Coder-0.5B-Instruct-Q8_0.gguf}
+      TRUSTAI_SIGNING_KEY_PATH: ${TRUSTAI_SIGNING_KEY_PATH:-/app/secrets/signing_key.pem}
+      TRUSTAI_SIGNING_KEY_ID: ${TRUSTAI_SIGNING_KEY_ID:-trustai-signing-v1}
+      TRUSTAI_BATCH_SIZE: ${TRUSTAI_BATCH_SIZE:-256}
+      TRUSTAI_BATCH_SEAL_SECONDS: ${TRUSTAI_BATCH_SEAL_SECONDS:-300}
+      TRUSTAI_CREDIT_RATE: ${TRUSTAI_CREDIT_RATE:-0.01}
+      TRUSTAI_CORS_ORIGINS: ${TRUSTAI_CORS_ORIGINS:-http://localhost:3000}
+    volumes:
+      - ./models:/app/models:ro
+      - ./secrets:/app/secrets
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      args:
+        NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:8000/api/v1}
+    ports:
+      - "3000:3000"
+    environment:
+      NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:8000/api/v1}
+    depends_on:
+      - backend
+
+volumes:
+  postgres_data:
