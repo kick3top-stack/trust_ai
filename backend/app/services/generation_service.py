@@ -99,7 +99,7 @@ class GenerationService:
             amount=-credit_cost,
             balance_after=updated_user.credit_balance if updated_user else 0,
             txn_type="generation",
-            description=f"Generation — {result.prompt_tokens + result.completion_tokens} tokens",
+            description=f"Generation ({result.prompt_tokens + result.completion_tokens} tokens)",
             request_id=request_id,
         )
         await self._session.commit()
@@ -288,14 +288,18 @@ class AdminService:
         self._user = user
         self._is_admin = user.role == "admin"
 
-    def _scoped_requests(self, query):
+    def _scoped_requests(self, query, user_id: UUID | None = None):
         from app.models.orm import GenerationRequestModel
 
+        if user_id is not None:
+            return query.where(GenerationRequestModel.user_id == user_id)
         if self._is_admin:
             return query
         return query.where(GenerationRequestModel.user_id == self._user.id)
 
-    async def _generations_by_day(self, days: int = 7) -> list[dict[str, Any]]:
+    async def _generations_by_day(
+        self, days: int = 7, user_id: UUID | None = None
+    ) -> list[dict[str, Any]]:
         from collections import defaultdict
         from datetime import datetime, timedelta, timezone
 
@@ -312,7 +316,7 @@ class AdminService:
         ).where(
             GenerationRequestModel.created_at >= since
         )
-        query = self._scoped_requests(query)
+        query = self._scoped_requests(query, user_id=user_id)
         result = await self._session.execute(query)
         counts: dict[str, int] = defaultdict(int)
         credits: dict[str, int] = defaultdict(int)
@@ -334,7 +338,7 @@ class AdminService:
             for i in range(days - 1, -1, -1)
         ]
 
-    async def _model_usage(self) -> list[dict[str, Any]]:
+    async def _model_usage(self, user_id: UUID | None = None) -> list[dict[str, Any]]:
         from sqlalchemy import func, select
 
         from app.models.orm import GenerationRequestModel
@@ -344,8 +348,7 @@ class AdminService:
             func.count().label("count"),
             func.sum(GenerationRequestModel.credit_cost).label("credits"),
         ).group_by(GenerationRequestModel.model_name)
-        if not self._is_admin:
-            query = query.where(GenerationRequestModel.user_id == self._user.id)
+        query = self._scoped_requests(query, user_id=user_id)
         result = await self._session.execute(query)
         return [
             {
@@ -356,83 +359,174 @@ class AdminService:
             for row in result.all()
         ]
 
-    async def get_stats(self) -> dict[str, Any]:
+    async def _latest_requests(
+        self,
+        *,
+        user_id: UUID | None = None,
+        limit: int = 10,
+        include_user: bool = False,
+    ) -> list[dict[str, Any]]:
         from sqlalchemy import select
+
+        from app.models.orm import GenerationRequestModel, UserModel
+
+        query = self._scoped_requests(
+            select(GenerationRequestModel).order_by(GenerationRequestModel.created_at.desc()).limit(
+                limit
+            ),
+            user_id=user_id,
+        )
+        result = await self._session.execute(query)
+        latest = list(result.scalars().all())
+
+        users_by_id: dict[UUID, UserModel] = {}
+        if include_user:
+            user_ids = {r.user_id for r in latest if r.user_id}
+            if user_ids:
+                users_result = await self._session.execute(
+                    select(UserModel).where(UserModel.id.in_(user_ids))
+                )
+                users_by_id = {u.id: u for u in users_result.scalars().all()}
+
+        rows = []
+        for r in latest:
+            row = {
+                "request_id": str(r.id),
+                "created_at": r.created_at.isoformat(),
+                "model_name": r.model_name,
+                "credit_cost": r.credit_cost,
+                "status": r.status,
+                "integrity_status": await integrity_for_request(self._session, r.id),
+            }
+            if include_user and r.user_id:
+                owner = users_by_id.get(r.user_id)
+                if owner:
+                    row["user_id"] = str(owner.id)
+                    row["user_email"] = owner.email
+                    row["user_display_name"] = owner.display_name
+            rows.append(row)
+        return rows
+
+    async def get_stats(self) -> dict[str, Any]:
+        """Personal dashboard stats for the signed-in user."""
+        return await self._build_user_stats(self._user)
+
+    async def get_platform_stats(self) -> dict[str, Any]:
+        if not self._is_admin:
+            raise PermissionError("Admin access required")
+        return await self._build_platform_stats()
+
+    async def get_user_stats(self, user_id: UUID) -> dict[str, Any]:
+        if not self._is_admin:
+            raise PermissionError("Admin access required")
+
+        from app.services.auth_service import AuthService, user_to_dict
+
+        target = await AuthService(self._session).get_by_id(user_id)
+        if target is None:
+            raise ValueError("User not found")
+
+        stats = await self._build_user_stats(target)
+        stats["scope"] = "user"
+        stats["user"] = user_to_dict(target)
+        return stats
+
+    async def _build_user_stats(self, subject: UserModel) -> dict[str, Any]:
+        from app.database.repositories import ReceiptRepository, VerificationLogRepository
+
+        receipt_repo = ReceiptRepository(self._session)
+        log_repo = VerificationLogRepository(self._session)
+
+        total_receipts = await receipt_repo.count_for_user(subject.id)
+        generations_by_day = await self._generations_by_day(user_id=subject.id)
+        credits_spent_7d = sum(day["credits"] for day in generations_by_day)
+
+        return {
+            "scope": "user",
+            "subject_user_id": str(subject.id),
+            "subject_email": subject.email,
+            "subject_display_name": subject.display_name,
+            "subject_role": subject.role,
+            "subject_is_active": subject.is_active,
+            "total_generations": total_receipts,
+            "total_receipts": total_receipts,
+            "credit_balance": subject.credit_balance,
+            "credits_spent_7d": credits_spent_7d,
+            "current_merkle_root": None,
+            "last_signature_at": None,
+            "open_batch_receipt_count": 0,
+            "signed_batch_count": 0,
+            "verification_success_rate": await log_repo.success_rate_for_user(subject.id),
+            "generations_by_day": generations_by_day,
+            "model_usage": await self._model_usage(user_id=subject.id),
+            "latest_requests": await self._latest_requests(user_id=subject.id),
+            "recent_batches": [],
+        }
+
+    async def _build_platform_stats(self) -> dict[str, Any]:
+        from sqlalchemy import func, select
         from sqlalchemy.orm import selectinload
 
         from app.database.repositories import BatchRepository, ReceiptRepository, VerificationLogRepository
-        from app.models.orm import BatchModel, GenerationRequestModel
+        from app.models.orm import BatchModel, UserModel
 
         receipt_repo = ReceiptRepository(self._session)
         batch_repo = BatchRepository(self._session)
         log_repo = VerificationLogRepository(self._session)
 
-        total_receipts = (
-            await receipt_repo.count_all()
-            if self._is_admin
-            else await receipt_repo.count_for_user(self._user.id)
+        total_users = int(
+            (
+                await self._session.execute(select(func.count()).select_from(UserModel))
+            ).scalar_one()
         )
-        latest_query = self._scoped_requests(
-            select(GenerationRequestModel).order_by(GenerationRequestModel.created_at.desc()).limit(10)
+        active_users = int(
+            (
+                await self._session.execute(
+                    select(func.count())
+                    .select_from(UserModel)
+                    .where(UserModel.is_active.is_(True))
+                )
+            ).scalar_one()
         )
-        result = await self._session.execute(latest_query)
-        latest = result.scalars().all()
 
-        latest_requests = []
-        for r in latest:
-            latest_requests.append(
-                {
-                    "request_id": str(r.id),
-                    "created_at": r.created_at.isoformat(),
-                    "model_name": r.model_name,
-                    "credit_cost": r.credit_cost,
-                    "status": r.status,
-                    "integrity_status": await integrity_for_request(self._session, r.id),
-                }
-            )
-
-        open_batch = await batch_repo.get_open_batch() if self._is_admin else None
-        latest_signed = None
-        if self._is_admin:
-            signed_result = await self._session.execute(
-                select(BatchModel)
-                .options(selectinload(BatchModel.signature))
-                .where(BatchModel.status == "signed")
-                .order_by(BatchModel.batch_number.desc())
-                .limit(1)
-            )
-            latest_signed = signed_result.scalar_one_or_none()
+        total_receipts = await receipt_repo.count_all()
+        open_batch = await batch_repo.get_open_batch()
+        signed_result = await self._session.execute(
+            select(BatchModel)
+            .options(selectinload(BatchModel.signature))
+            .where(BatchModel.status == "signed")
+            .order_by(BatchModel.batch_number.desc())
+            .limit(1)
+        )
+        latest_signed = signed_result.scalar_one_or_none()
 
         generations_by_day = await self._generations_by_day()
         credits_spent_7d = sum(day["credits"] for day in generations_by_day)
 
         return {
+            "scope": "platform",
+            "total_users": total_users,
+            "active_users": active_users,
             "total_generations": total_receipts,
             "total_receipts": total_receipts,
-            "credit_balance": self._user.credit_balance,
+            "viewer_credit_balance": self._user.credit_balance,
             "credits_spent_7d": credits_spent_7d,
             "current_merkle_root": (
                 open_batch.merkle_root
                 if open_batch and open_batch.merkle_root
                 else (latest_signed.merkle_root if latest_signed else None)
-            )
-            if self._is_admin
-            else None,
+            ),
             "last_signature_at": (
                 latest_signed.signature.signed_at.isoformat()
                 if latest_signed and latest_signed.signature
                 else None
-            )
-            if self._is_admin
-            else None,
+            ),
             "open_batch_receipt_count": open_batch.receipt_count if open_batch else 0,
-            "signed_batch_count": await batch_repo.count_signed() if self._is_admin else 0,
-            "verification_success_rate": await log_repo.success_rate()
-            if self._is_admin
-            else await log_repo.success_rate_for_user(self._user.id),
+            "signed_batch_count": await batch_repo.count_signed(),
+            "verification_success_rate": await log_repo.success_rate(),
             "generations_by_day": generations_by_day,
             "model_usage": await self._model_usage(),
-            "latest_requests": latest_requests,
+            "latest_requests": await self._latest_requests(include_user=True),
             "recent_batches": await self._recent_batches(),
         }
 

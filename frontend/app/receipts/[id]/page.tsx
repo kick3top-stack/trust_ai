@@ -170,7 +170,7 @@ export default function ReceiptDetailPage() {
                         What you were charged
                       </p>
                       <p className="text-2xl font-semibold text-teal-400">
-                        {String(receipt.credit_cost ?? gen?.credit_cost ?? "—")} credits
+                        {String(receipt.credit_cost ?? gen?.credit_cost ?? "-")} credits
                       </p>
                       {(gen?.prompt_tokens != null || gen?.completion_tokens != null) && (
                         <p className="mt-1 text-slate-400">
@@ -179,9 +179,9 @@ export default function ReceiptDetailPage() {
                         </p>
                       )}
                     </div>
-                    <MetaRow label="Model" value={String(receipt.model_name || gen?.model_name || "—")} />
-                    <MetaRow label="When" value={String(receipt.timestamp || gen?.created_at || "—")} />
-                    <MetaRow label="Request ID" value={String(receipt.request_id || "—")} mono />
+                    <MetaRow label="Model" value={String(receipt.model_name || gen?.model_name || "-")} />
+                    <MetaRow label="When" value={String(receipt.timestamp || gen?.created_at || "-")} />
+                    <MetaRow label="Request ID" value={String(receipt.request_id || "-")} mono />
                     {verifyResult && (
                       <VerificationStatus
                         checks={verifyResult.checks}
@@ -227,11 +227,11 @@ export default function ReceiptDetailPage() {
               {tab === "proof" && (
                 <div className="space-y-6">
                   <div className="grid gap-3 text-sm lg:grid-cols-2">
-                    <MetaRow label="Receipt Hash" value={String(receipt.receipt_hash || "—")} mono />
+                    <MetaRow label="Receipt Hash" value={String(receipt.receipt_hash || "-")} mono />
                     <MetaRow label="Model Hash" value={truncateHash(String(receipt.model_hash), 16)} mono />
                     <MetaRow label="Prompt Hash" value={truncateHash(String(receipt.prompt_hash), 16)} mono />
                     <MetaRow label="Output Hash" value={truncateHash(String(receipt.response_hash), 16)} mono />
-                    <MetaRow label="Seed" value={String(receipt.seed ?? "—")} />
+                    <MetaRow label="Seed" value={String(receipt.seed ?? "-")} />
                   </div>
                   <div>
                     <p className="mb-4 text-xs font-medium uppercase tracking-wider text-slate-500">
@@ -252,10 +252,10 @@ export default function ReceiptDetailPage() {
                     <div className="rounded-lg border border-slate-800 bg-slate-900/40 p-4 text-sm">
                       <p className="mb-2 text-xs font-medium uppercase text-slate-500">Ed25519 Signature</p>
                       <p className="font-mono text-xs text-slate-400">
-                        Key: {String((pkg.root_signature as Record<string, unknown>).signing_key_id || "—")}
+                        Key: {String((pkg.root_signature as Record<string, unknown>).signing_key_id || "-")}
                       </p>
                       <p className="mt-1 font-mono text-xs text-slate-400">
-                        Batch #{String((pkg.root_signature as Record<string, unknown>).batch_number ?? "—")}
+                        Batch #{String((pkg.root_signature as Record<string, unknown>).batch_number ?? "-")}
                       </p>
                     </div>
                   )}

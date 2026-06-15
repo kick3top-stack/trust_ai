@@ -29,6 +29,11 @@ export default function AdminSupportPage() {
   const [disputes, setDisputes] = useState<Dispute[]>([]);
 
   useEffect(() => {
+    const q = new URLSearchParams(window.location.search).get("email");
+    if (q) setEmail(q);
+  }, []);
+
+  useEffect(() => {
     if (!loading && !user) router.replace("/login");
     else if (!loading && user && user.role !== "admin") router.replace("/dashboard");
   }, [loading, user, router]);

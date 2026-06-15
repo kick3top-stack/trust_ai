@@ -136,7 +136,7 @@ export default function BillingPage() {
 
       {balance < 50 && (
         <div className="mt-6 rounded-md border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-sm text-amber-200">
-          Low balance — you have {balance} credits remaining.
+          Low balance: you have {balance} credits remaining.
         </div>
       )}
     </div>

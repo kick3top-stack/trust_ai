@@ -44,7 +44,7 @@ export function IntegrityBadge({
 }) {
   if (variant === "batch") {
     const key = (status as BatchIntegrityStatus) || "pending";
-    const label = BATCH_LABELS[key] ?? status ?? "—";
+    const label = BATCH_LABELS[key] ?? status ?? "-";
     const style = BATCH_STYLES[key] ?? BATCH_STYLES.pending;
     return (
       <span
@@ -61,7 +61,7 @@ export function IntegrityBadge({
   }
 
   const key = (status as ReceiptIntegrityStatus) || "pending";
-  const label = RECEIPT_LABELS[key] ?? status ?? "—";
+  const label = RECEIPT_LABELS[key] ?? status ?? "-";
   const style = RECEIPT_STYLES[key] ?? RECEIPT_STYLES.pending;
   return (
     <span

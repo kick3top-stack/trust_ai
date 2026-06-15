@@ -39,7 +39,7 @@ async def repair_missing_generation_charges(session: AsyncSession) -> int:
             balance_after=user.credit_balance,
             txn_type="generation",
             description=(
-                f"Generation (backfill) — {gen.prompt_tokens + gen.completion_tokens} tokens"
+                f"Generation (backfill) ({gen.prompt_tokens + gen.completion_tokens} tokens)"
             ),
             request_id=gen.id,
         )

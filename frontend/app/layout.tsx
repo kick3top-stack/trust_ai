@@ -4,8 +4,11 @@ import { AppShell } from "@/components/layout/AppShell";
 import { AuthProvider } from "@/components/AuthProvider";
 
 export const metadata: Metadata = {
-  title: "AI Verification Platform",
+  title: "TrustAI",
   description: "Cryptographic execution receipts for AI generations",
+  icons: {
+    icon: "/asset/images/TrustAI_logo.png",
+  },
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {

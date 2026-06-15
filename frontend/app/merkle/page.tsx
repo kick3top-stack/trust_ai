@@ -59,7 +59,7 @@ export default function MerkleExplorerPage() {
       {alteredBatches > 0 && (
         <div className="mb-6 rounded-md border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-300">
           {alteredBatches} batch{alteredBatches === 1 ? "" : "es"} contain altered or invalid
-          receipts — Merkle integrity check failed.
+          receipts. Merkle integrity check failed.
         </div>
       )}
 
@@ -122,7 +122,7 @@ export default function MerkleExplorerPage() {
                     </td>
                     <td>{b.receipt_count}</td>
                     <td className="font-mono text-xs">
-                      {b.merkle_root ? truncateHash(b.merkle_root, 6) : "—"}
+                      {b.merkle_root ? truncateHash(b.merkle_root, 6) : "-"}
                     </td>
                     <td>
                       <button
@@ -163,7 +163,7 @@ export default function MerkleExplorerPage() {
                 <Stat label="Receipt count" value={String(detail.receipt_count)} />
                 <Stat
                   label="Merkle root"
-                  value={detail.merkle_root ? String(detail.merkle_root) : "—"}
+                  value={detail.merkle_root ? String(detail.merkle_root) : "-"}
                   mono
                 />
                 {detail.sealed_at != null && (

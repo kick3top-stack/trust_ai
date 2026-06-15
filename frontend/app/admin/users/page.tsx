@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/components/AuthProvider";
@@ -87,7 +88,10 @@ export default function AdminUsersPage() {
 
   return (
     <div>
-      <PageHeader title="User Management" subtitle="Admin — manage accounts and roles" />
+      <PageHeader
+        title="User management"
+        subtitle="Select a user to open their account dashboard"
+      />
 
       {error && (
         <div className="mb-6 rounded-md border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-300">
@@ -112,7 +116,11 @@ export default function AdminUsersPage() {
             </thead>
             <tbody>
               {users.map((u) => (
-                <tr key={u.id}>
+                <tr
+                  key={u.id}
+                  className="cursor-pointer transition hover:bg-slate-800/40"
+                  onClick={() => router.push(`/admin/users/${u.id}`)}
+                >
                   <td>{u.display_name}</td>
                   <td className="text-slate-400">{u.email}</td>
                   <td>
@@ -120,7 +128,7 @@ export default function AdminUsersPage() {
                       {u.role}
                     </span>
                   </td>
-                  <td className="font-mono text-teal-400">{u.credit_balance ?? "—"}</td>
+                  <td className="font-mono text-teal-400">{u.credit_balance ?? "-"}</td>
                   <td>
                     <span className={u.is_active ? "text-emerald-400" : "text-red-400"}>
                       {u.is_active ? "Active" : "Disabled"}
@@ -129,7 +137,13 @@ export default function AdminUsersPage() {
                   <td className="whitespace-nowrap text-slate-500">
                     {new Date(u.created_at).toLocaleDateString()}
                   </td>
-                  <td className="space-x-2 whitespace-nowrap">
+                  <td className="space-x-2 whitespace-nowrap" onClick={(e) => e.stopPropagation()}>
+                    <Link
+                      href={`/admin/users/${u.id}`}
+                      className="btn-primary py-1 text-xs"
+                    >
+                      View
+                    </Link>
                     <button
                       className="btn-secondary py-1 text-xs"
                       disabled={busyId === u.id}

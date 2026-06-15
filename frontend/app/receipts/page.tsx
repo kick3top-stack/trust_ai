@@ -34,7 +34,7 @@ export default function ReceiptsPage() {
 
       {alteredCount > 0 && (
         <div className="mb-6 rounded-md border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-300">
-          {alteredCount} receipt{alteredCount === 1 ? "" : "s"} show integrity problems — data may
+          {alteredCount} receipt{alteredCount === 1 ? "" : "s"} show integrity problems. Data may
           have been altered.
         </div>
       )}

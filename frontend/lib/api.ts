@@ -1,4 +1,5 @@
 import { estimateGenerationCost } from "./credits";
+import type { AuthUser } from "./auth";
 
 export const API_BASE = process.env.NEXT_PUBLIC_API_URL || "/api/v1";
 export const CREDIT_RATE = 0.01; // fallback; use fetchBillingConfig() for server value
@@ -134,6 +135,9 @@ export interface ReceiptListItem {
   credit_cost: number;
   status: string;
   integrity_status: ReceiptIntegrityStatus;
+  user_id?: string;
+  user_email?: string;
+  user_display_name?: string;
 }
 
 export interface VerificationChecks {
@@ -158,9 +162,18 @@ export interface VerifyResult {
 }
 
 export interface AdminStats {
+  scope?: "platform" | "user";
+  total_users?: number;
+  active_users?: number;
+  subject_user_id?: string;
+  subject_email?: string;
+  subject_display_name?: string;
+  subject_role?: string;
+  subject_is_active?: boolean;
   total_generations: number;
   total_receipts: number;
   credit_balance?: number;
+  viewer_credit_balance?: number;
   credits_spent_7d?: number;
   current_merkle_root: string | null;
   last_signature_at: string | null;
@@ -171,6 +184,7 @@ export interface AdminStats {
   model_usage: Array<{ model_name: string; count: number; credits: number }>;
   latest_requests: ReceiptListItem[];
   recent_batches?: BatchSummary[];
+  user?: AuthUser;
 }
 
 export async function fetchReceiptsList(limit = 50): Promise<ReceiptListItem[]> {
@@ -364,6 +378,32 @@ export async function fetchAdminStats(): Promise<AdminStats> {
   return res.json();
 }
 
+export async function fetchPlatformStats(): Promise<AdminStats> {
+  const res = await apiFetch(`${API_BASE}/admin/platform-stats`, { headers: apiHeaders() });
+  if (!res) throw new ApiConnectionError();
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(typeof err.detail === "string" ? err.detail : "Failed to load platform stats");
+  }
+  return res.json();
+}
+
+export async function fetchAdminUserStats(userId: string): Promise<AdminStats> {
+  const res = await apiFetch(`${API_BASE}/admin/users/${userId}/stats`, {
+    headers: apiHeaders(),
+  });
+  if (!res) throw new ApiConnectionError();
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    const detail = typeof err.detail === "string" ? err.detail : null;
+    if (res.status === 404) {
+      throw new Error(detail || "User stats API not found. Restart the backend on your VPS.");
+    }
+    throw new Error(detail || "Failed to load user stats");
+  }
+  return res.json();
+}
+
 export async function fetchPublicKey() {
   const res = await apiFetch(`${API_BASE}/admin/public-key`, { headers: apiHeaders() });
   if (!res) throw new ApiConnectionError();
@@ -409,7 +449,7 @@ export async function loadBatchList(): Promise<{ batches: BatchSummary[]; staleB
     } catch {
       // ignore
     }
-    throw new Error("Failed to load batches — stop the app (Ctrl+C), run npm run free-port, then npm run dev");
+    throw new Error("Failed to load batches. Stop the app (Ctrl+C), run npm run free-port, then npm run dev");
   }
 }
 
@@ -417,7 +457,7 @@ export async function fetchBatches(): Promise<{ batches: BatchSummary[] }> {
   const res = await apiFetch(`${API_BASE}/batches`, { headers: apiHeaders() });
   if (!res) throw new ApiConnectionError();
   if (res.status === 404) {
-    throw new Error("Batches API missing — restart the app: npm run dev");
+    throw new Error("Batches API missing. Restart the app: npm run dev");
   }
   if (!res.ok) throw new Error("Failed to load batches");
   return res.json();
@@ -447,7 +487,7 @@ export async function downloadReceiptPackage(receiptId: string, filename?: strin
 }
 
 export function truncateHash(value: string | undefined | null, len = 8): string {
-  if (!value) return "—";
+  if (!value) return "-";
   return value.length > len * 2 ? `${value.slice(0, len)}...` : value;
 }
 

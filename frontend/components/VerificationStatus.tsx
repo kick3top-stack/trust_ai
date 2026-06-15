@@ -60,7 +60,7 @@ export function VerificationStatus({
         {batchTrusted && (
           <div className="mb-4 rounded-md border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-sm text-amber-200">
             Your charge is recorded in the signed batch. The receipt copy shown here did not pass
-            every integrity check — support can confirm using your request ID.
+            every integrity check. Support can confirm using your request ID.
           </div>
         )}
         <ul className="space-y-2">

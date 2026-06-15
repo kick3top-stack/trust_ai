@@ -102,13 +102,13 @@ export default function PlaygroundPage() {
     <div>
       <PageHeader
         title="Playground"
-        subtitle="New Generation — run inference and get a receipt for every charge"
+        subtitle="New Generation: run inference and get a receipt for every charge"
       />
 
       {user && (
         <p className="mb-4 text-sm text-slate-500">
           Credit balance:{" "}
-          <span className="font-mono text-teal-400">{user.credit_balance ?? "—"}</span>
+          <span className="font-mono text-teal-400">{user.credit_balance ?? "-"}</span>
           {" · "}
           Estimated cost: up to ~{estimatedCredits} credits (prompt + max output)
           {" · "}

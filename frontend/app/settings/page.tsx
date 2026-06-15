@@ -62,7 +62,7 @@ export default function SettingsPage() {
         <div className="panel">
           <div className="panel-header">Signing Key</div>
           <div className="panel-body space-y-4">
-            <p className="text-xs text-slate-500">Key ID: {keyId || "—"}</p>
+            <p className="text-xs text-slate-500">Key ID: {keyId || "-"}</p>
             <div className="input-field font-mono text-xs">
               ed25519: {publicKey ? `${publicKey.slice(0, 24)}${"*".repeat(24)}` : "loading..."}
             </div>

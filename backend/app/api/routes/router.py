@@ -15,7 +15,7 @@ from app.api.schemas.verify import VerifyRequest, VerifyResponse
 from app.crypto.key_manager import get_public_key_info
 from app.database.repositories import ReceiptRepository
 from app.database.session import get_session
-from app.dependencies import get_current_user, get_generation_service, get_inference_provider
+from app.dependencies import get_current_user, get_generation_service, get_inference_provider, require_admin
 from app.domain.exceptions import InsufficientCreditsError, ModelNotLoadedError
 from app.domain.interfaces.inference_provider import GenerationParams
 from app.domain.interfaces.inference_provider import InferenceProvider
@@ -332,8 +332,36 @@ async def admin_stats(
     session: AsyncSession = Depends(get_session),
     user: UserModel = Depends(get_current_user),
 ) -> dict[str, Any]:
+    """Personal dashboard stats for the signed-in user."""
     service = AdminService(session, user)
     return await service.get_stats()
+
+
+@router.get("/admin/platform-stats")
+async def admin_platform_stats(
+    session: AsyncSession = Depends(get_session),
+    admin: UserModel = Depends(require_admin),
+) -> dict[str, Any]:
+    service = AdminService(session, admin)
+    try:
+        return await service.get_platform_stats()
+    except PermissionError as exc:
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
+
+
+@router.get("/admin/users/{user_id}/stats")
+async def admin_user_stats(
+    user_id: UUID,
+    session: AsyncSession = Depends(get_session),
+    admin: UserModel = Depends(require_admin),
+) -> dict[str, Any]:
+    service = AdminService(session, admin)
+    try:
+        return await service.get_user_stats(user_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except PermissionError as exc:
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
 
 
 @router.get("/admin/public-key")

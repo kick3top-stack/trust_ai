@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { FormEvent, useEffect, useState } from "react";
 import { useAuth } from "@/components/AuthProvider";
+import { Logo } from "@/components/Logo";
 
 export default function LoginPage() {
   const { login, user, loading: authLoading } = useAuth();
@@ -39,6 +40,9 @@ export default function LoginPage() {
 
   return (
     <div className="mx-auto max-w-md">
+      <div className="mb-8 flex justify-center">
+        <Logo href="/" height={44} />
+      </div>
       <h1 className="mb-2 text-2xl font-semibold text-white">Sign in</h1>
       <p className="mb-8 text-sm text-slate-400">Access your TrustAI dashboard and receipts</p>
 

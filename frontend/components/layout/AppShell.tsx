@@ -6,6 +6,7 @@ import { useEffect } from "react";
 import clsx from "clsx";
 import { API_DOCS_URL } from "@/lib/api";
 import { useAuth } from "@/components/AuthProvider";
+import { Logo } from "@/components/Logo";
 
 const NAV = [
   { href: "/playground", label: "Playground", icon: "▶" },
@@ -19,6 +20,7 @@ const NAV = [
 ];
 
 const AUTH_ROUTES = ["/login", "/register"];
+const LANDING_ROUTES = ["/"];
 
 const PROTECTED_PREFIXES = [
   "/dashboard",
@@ -44,6 +46,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const router = useRouter();
   const { user, loading, logout } = useAuth();
   const isAuthRoute = AUTH_ROUTES.includes(pathname);
+  const isLandingRoute = LANDING_ROUTES.includes(pathname);
   const protectedRoute = isProtectedRoute(pathname);
 
   useEffect(() => {
@@ -51,6 +54,10 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       router.replace("/login");
     }
   }, [loading, protectedRoute, user, router]);
+
+  if (isLandingRoute) {
+    return <>{children}</>;
+  }
 
   if (isAuthRoute) {
     return (
@@ -71,13 +78,8 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   return (
     <div className="flex min-h-screen">
       <aside className="flex w-56 shrink-0 flex-col border-r border-slate-800 bg-[#0d1117]">
-        <div className="border-b border-slate-800 px-5 py-5">
-          <Link href={user ? "/dashboard" : "/login"} className="flex items-center gap-2.5">
-            <span className="flex h-9 w-9 items-center justify-center rounded-lg bg-gradient-to-br from-teal-500 to-violet-600 text-sm font-bold text-white">
-              T
-            </span>
-            <span className="text-base font-semibold text-white">TrustAI</span>
-          </Link>
+        <div className="border-b border-slate-800 px-4 py-4">
+          <Logo href={user ? "/dashboard" : "/"} height={36} className="max-w-[12.5rem]" />
         </div>
 
         <nav className="flex-1 space-y-0.5 px-3 py-4">
@@ -103,7 +105,22 @@ export function AppShell({ children }: { children: React.ReactNode }) {
               );
             })}
           {user?.role === "admin" && (
-            <>
+            <div className="mt-4 space-y-0.5 border-t border-slate-800 pt-4">
+              <p className="px-3 pb-1 text-[10px] font-semibold uppercase tracking-widest text-slate-600">
+                Admin
+              </p>
+              <Link
+                href="/admin/overview"
+                className={clsx(
+                  "flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm transition",
+                  pathname.startsWith("/admin/overview")
+                    ? "bg-violet-900/40 text-violet-200"
+                    : "text-slate-400 hover:bg-slate-800/60 hover:text-slate-200",
+                )}
+              >
+                <span className="w-4 text-center text-xs opacity-70">◈</span>
+                Platform overview
+              </Link>
               <Link
                 href="/admin/support"
                 className={clsx(
@@ -128,7 +145,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                 <span className="w-4 text-center text-xs opacity-70">👤</span>
                 Users
               </Link>
-            </>
+            </div>
           )}
         </nav>
 
