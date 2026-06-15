@@ -12,7 +12,9 @@ const NAV = [
   { href: "/dashboard", label: "Dashboard", icon: "◫" },
   { href: "/receipts", label: "Receipts", icon: "☰" },
   { href: "/verify", label: "Verify", icon: "✓" },
+  { href: "/merkle", label: "Merkle", icon: "◎" },
   { href: "/audit", label: "Audit Log", icon: "≡" },
+  { href: "/billing", label: "Billing", icon: "¤" },
   { href: "/settings", label: "Settings", icon: "⚙" },
 ];
 
@@ -23,6 +25,8 @@ const PROTECTED_PREFIXES = [
   "/playground",
   "/receipts",
   "/verify",
+  "/merkle",
+  "/billing",
   "/audit",
   "/settings",
   "/profile",
@@ -99,18 +103,32 @@ export function AppShell({ children }: { children: React.ReactNode }) {
               );
             })}
           {user?.role === "admin" && (
-            <Link
-              href="/admin/users"
-              className={clsx(
-                "flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm transition",
-                pathname.startsWith("/admin")
-                  ? "bg-slate-800 text-white"
-                  : "text-slate-400 hover:bg-slate-800/60 hover:text-slate-200",
-              )}
-            >
-              <span className="w-4 text-center text-xs opacity-70">👤</span>
-              Users
-            </Link>
+            <>
+              <Link
+                href="/admin/support"
+                className={clsx(
+                  "flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm transition",
+                  pathname.startsWith("/admin/support")
+                    ? "bg-slate-800 text-white"
+                    : "text-slate-400 hover:bg-slate-800/60 hover:text-slate-200",
+                )}
+              >
+                <span className="w-4 text-center text-xs opacity-70">?</span>
+                Support
+              </Link>
+              <Link
+                href="/admin/users"
+                className={clsx(
+                  "flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm transition",
+                  pathname.startsWith("/admin/users")
+                    ? "bg-slate-800 text-white"
+                    : "text-slate-400 hover:bg-slate-800/60 hover:text-slate-200",
+                )}
+              >
+                <span className="w-4 text-center text-xs opacity-70">👤</span>
+                Users
+              </Link>
+            </>
           )}
         </nav>
 

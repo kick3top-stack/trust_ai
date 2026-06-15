@@ -33,6 +33,10 @@ class ReceiptService:
         credit_cost: int,
         status: ReceiptStatus = ReceiptStatus.COMPLETED,
         user_id: UUID | None = None,
+        prompt_text: str | None = None,
+        response_text: str | None = None,
+        prompt_tokens: int = 0,
+        completion_tokens: int = 0,
     ) -> dict[str, Any]:
         receipt_id = uuid4()
         timestamp = datetime.now(timezone.utc)
@@ -59,6 +63,10 @@ class ReceiptService:
             generation_parameters=generation_parameters,
             prompt_hash=prompt_hash,
             response_hash=response_hash,
+            prompt_text=prompt_text,
+            response_text=response_text,
+            prompt_tokens=prompt_tokens,
+            completion_tokens=completion_tokens,
             model_name=model_name,
             model_version=model_version,
             model_hash=model_hash,
@@ -87,10 +95,31 @@ class ReceiptService:
             "root_signature": root_sig,
         }
 
+    def _generation_summary(self, gen: Any) -> dict[str, Any]:
+        return {
+            "prompt_text": gen.prompt_text,
+            "response_text": gen.response_text,
+            "prompt_tokens": gen.prompt_tokens,
+            "completion_tokens": gen.completion_tokens,
+            "credit_cost": gen.credit_cost,
+            "model_name": gen.model_name,
+            "created_at": gen.created_at.isoformat(),
+        }
+
     async def get_by_request_id(self, request_id: UUID) -> dict[str, Any] | None:
         row = await self._receipt_repo.get_by_request_id(request_id)
-        if row is None:
+        gen = await self._receipt_repo.get_generation_request(request_id)
+        if row is None and gen is None:
             return None
+        if row is None:
+            return {
+                "receipt": None,
+                "receipt_id": None,
+                "batch_id": None,
+                "merkle_proof": None,
+                "root_signature": None,
+                "generation": self._generation_summary(gen) if gen else None,
+            }
         receipt = {**row.canonical_payload, "receipt_hash": row.receipt_hash}
         batch_service = BatchService(self._session)
         proof = None
@@ -104,6 +133,7 @@ class ReceiptService:
             "batch_id": str(row.batch_id) if row.batch_id else None,
             "merkle_proof": proof,
             "root_signature": root_sig,
+            "generation": self._generation_summary(gen) if gen else None,
         }
 
     async def get_by_id(self, receipt_id: UUID) -> dict[str, Any] | None:

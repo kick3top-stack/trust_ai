@@ -119,6 +119,8 @@ async def admin_update_user(
             role=body.role,
             is_active=body.is_active,
             display_name=body.display_name,
+            credit_balance=body.credit_balance,
+            actor_id=admin.id,
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc

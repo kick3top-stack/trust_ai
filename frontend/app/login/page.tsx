@@ -2,19 +2,24 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { FormEvent, useState } from "react";
+import { FormEvent, useEffect, useState } from "react";
 import { useAuth } from "@/components/AuthProvider";
 
 export default function LoginPage() {
-  const { login, user } = useAuth();
+  const { login, user, loading: authLoading } = useAuth();
   const router = useRouter();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
 
-  if (user) {
-    router.replace("/dashboard");
+  useEffect(() => {
+    if (!authLoading && user) {
+      router.replace("/dashboard");
+    }
+  }, [authLoading, user, router]);
+
+  if (authLoading || user) {
     return null;
   }
 
@@ -48,7 +53,8 @@ export default function LoginPage() {
           <label className="block text-sm">
             <span className="mb-1 block text-slate-400">Email</span>
             <input
-              type="email"
+              type="text"
+              autoComplete="username"
               className="input-field w-full"
               value={email}
               onChange={(e) => setEmail(e.target.value)}

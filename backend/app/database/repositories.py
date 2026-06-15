@@ -35,6 +35,10 @@ class ReceiptRepository:
         model_hash: str,
         seed: int,
         user_id: UUID | None = None,
+        prompt_text: str | None = None,
+        response_text: str | None = None,
+        prompt_tokens: int = 0,
+        completion_tokens: int = 0,
     ) -> GenerationRequestModel:
         row = GenerationRequestModel(
             id=request_id,
@@ -44,6 +48,10 @@ class ReceiptRepository:
             generation_parameters=generation_parameters,
             prompt_hash=prompt_hash,
             response_hash=response_hash,
+            prompt_text=prompt_text,
+            response_text=response_text,
+            prompt_tokens=prompt_tokens,
+            completion_tokens=completion_tokens,
             model_name=model_name,
             model_version=model_version,
             model_hash=model_hash,
@@ -52,6 +60,12 @@ class ReceiptRepository:
         self._session.add(row)
         await self._session.flush()
         return row
+
+    async def get_generation_request(self, request_id: UUID) -> GenerationRequestModel | None:
+        result = await self._session.execute(
+            select(GenerationRequestModel).where(GenerationRequestModel.id == request_id)
+        )
+        return result.scalar_one_or_none()
 
     async def create_receipt(
         self,
@@ -205,6 +219,12 @@ class BatchRepository:
             .where(BatchModel.status == BatchStatus.SIGNED.value)
         )
         return result.scalar_one()
+
+    async def list_batches(self, limit: int = 50) -> list[BatchModel]:
+        result = await self._session.execute(
+            select(BatchModel).order_by(BatchModel.batch_number.desc()).limit(limit)
+        )
+        return list(result.scalars().all())
 
 
 class VerificationLogRepository:

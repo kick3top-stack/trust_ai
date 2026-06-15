@@ -1,16 +1,19 @@
 "use client";
 
 import Link from "next/link";
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { useAuth } from "@/components/AuthProvider";
 import { MarkdownContent } from "@/components/MarkdownContent";
 import { PageHeader } from "@/components/ui/PageHeader";
-import { generateDemo } from "@/lib/api";
+import { generateDemo, estimateMaxCredits } from "@/lib/api";
+import { fetchBillingConfig } from "@/lib/credits";
 
 const MODELS = [{ id: "qwen2.5-coder-0.5b-instruct", label: "Qwen2.5-Coder-0.5B-Instruct (Q8_0)" }];
 
 export default function PlaygroundPage() {
+  const { user, refreshUser } = useAuth();
   const [prompt, setPrompt] = useState(
-    "A cinematic cyberpunk city at night with heavy rain and neon reflections...",
+    "",
   );
   const [model, setModel] = useState(MODELS[0].id);
   const [temperature, setTemperature] = useState(0.7);
@@ -21,10 +24,21 @@ export default function PlaygroundPage() {
   const [receiptId, setReceiptId] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [chargeSummary, setChargeSummary] = useState<string | null>(null);
+  const [creditRate, setCreditRate] = useState(0.01);
+
+  useEffect(() => {
+    fetchBillingConfig()
+      .then((c) => setCreditRate(c.credit_rate))
+      .catch(() => {});
+  }, []);
+
+  const estimatedCredits = estimateMaxCredits(maxTokens, prompt, creditRate);
 
   async function handleGenerate() {
     setLoading(true);
     setError(null);
+    setChargeSummary(null);
     setOutput(null);
     setReceiptId(null);
     try {
@@ -36,15 +50,28 @@ export default function PlaygroundPage() {
       });
       setOutput(result.response);
       setReceiptId(result.receipt_id);
+      setChargeSummary(
+        `Charged ${result.credit_cost} credits (${result.prompt_tokens + result.completion_tokens} tokens) · Balance ${result.credit_balance}`,
+      );
       const payload = {
         receipt: result.receipt,
         merkle_proof: result.merkle_proof,
         root_signature: result.root_signature,
         response: result.response,
         receipt_id: result.receipt_id,
+        generation: {
+          prompt_text: prompt,
+          response_text: result.response,
+          prompt_tokens: result.prompt_tokens,
+          completion_tokens: result.completion_tokens,
+          credit_cost: result.credit_cost,
+          model_name: String(result.receipt.model_name || model),
+          created_at: String(result.receipt.timestamp || new Date().toISOString()),
+        },
       };
       sessionStorage.setItem(`receipt:${result.receipt_id}`, JSON.stringify(payload));
       sessionStorage.setItem(`receipt:request:${result.request_id}`, JSON.stringify(payload));
+      await refreshUser();
     } catch (e) {
       setError(e instanceof Error ? e.message : "Generation failed");
     } finally {
@@ -56,8 +83,35 @@ export default function PlaygroundPage() {
     <div>
       <PageHeader
         title="Playground"
-        subtitle="New Generation — run inference and produce a cryptographic receipt"
+        subtitle="New Generation — run inference and get a receipt for every charge"
       />
+
+      {user && (
+        <p className="mb-4 text-sm text-slate-500">
+          Credit balance:{" "}
+          <span className="font-mono text-teal-400">{user.credit_balance ?? "—"}</span>
+          {" · "}
+          Estimated cost: up to ~{estimatedCredits} credits (prompt + max output)
+          {" · "}
+          <Link href="/billing" className="text-teal-400 hover:underline">
+            Billing
+          </Link>
+        </p>
+      )}
+
+      {chargeSummary && (
+        <div className="mb-4 rounded-md border border-emerald-500/30 bg-emerald-500/10 px-4 py-3 text-sm text-emerald-300">
+          {chargeSummary}
+          {receiptId && (
+            <>
+              {" · "}
+              <Link href={`/receipts/${receiptId}`} className="underline">
+                View receipt
+              </Link>
+            </>
+          )}
+        </div>
+      )}
 
       <div className="grid gap-6 lg:grid-cols-2 lg:items-start">
         {/* Left: inputs */}

@@ -4,7 +4,7 @@ Cryptographic execution receipts for AI generations. Prove model identity, param
 
 ## Quick Start
 
-**First time only** — install backend deps (includes GGUF inference library):
+**First time only** — install backend deps:
 
 ```powershell
 cd D:\git_repo\AI_verify
@@ -17,69 +17,55 @@ Then run:
 npm run dev
 ```
 
-Starts **backend** (port 8000) and **frontend** (port 3000). `.env` is already configured — no manual env commands.
+Starts **backend** (port 8000) and **frontend** (port 3000).
 
 | URL | |
 |-----|--|
 | Frontend | http://localhost:3000 |
-| **Generate** | http://localhost:3000/generate |
+| **Sign in** | http://localhost:3000/login |
+| **Playground** | http://localhost:3000/playground |
 | **Dashboard** | http://localhost:3000/dashboard |
 | API | http://localhost:8000/api/v1 |
 | Health | http://localhost:8000/api/v1/health |
+
+**Default admin** (created on first startup): `admin@trustai.local` / `admin123`
+
+Change `TRUSTAI_JWT_SECRET` and admin password before any public deployment.
 
 **Other scripts:**
 
 ```powershell
 npm run dev:backend    # backend only
 npm run dev:frontend   # frontend only
+npm run free-port      # free port 8000 if blocked
+npm run pilot-setup    # generate JWT secret + pilot checklist
+npm run smoke-test     # verify auth/billing/disputes (backend must be running)
 ```
 
-### Place your model (for generation)
+See [docs/support-playbook.md](docs/support-playbook.md) for handling billing disputes.
 
-**Option A — LM Studio (recommended on VPS)**
+### LM Studio (recommended on VPS)
 
-1. Open **LM Studio** → load `Qwen2.5-Coder-0.5B-Instruct-Q8_0`
-2. Go to **Local Server** tab → click **Start Server** (port `1234`)
-3. `.env` is set to `TRUSTAI_INFERENCE_BACKEND=lmstudio`
+1. Load `Qwen2.5-Coder-0.5B-Instruct-Q8_0` in **LM Studio**
+2. **Local Server** → Start (port `1234`)
+3. `.env`: `TRUSTAI_INFERENCE_BACKEND=lmstudio`
 
-**Option B — Direct GGUF** (requires CPU with AVX support)
+### Place model file
 
-Copy GGUF file to `models/Qwen2.5-Coder-0.5B-Instruct-Q8_0.gguf` and set `TRUSTAI_INFERENCE_BACKEND=gguf`
+`models/Qwen2.5-Coder-0.5B-Instruct-Q8_0.gguf`
 
-### VPS (no Docker)
+## Usage
 
-```powershell
-.\scripts\start-vps.ps1 -PublicHost "http://YOUR_VPS_IP:3000"
-```
+1. **Register** or sign in at `/login`
+2. **Playground** — generate with inference parameters; credits are deducted per run
+3. **Receipt** — cryptographic proof of model, params, and billing
+4. **Verify** — upload receipt ZIP/JSON or paste JSON
+5. **Merkle Explorer** — browse sealed batch roots
+6. **Billing** — view credit balance and statement
+7. **Report billing issue** — on any receipt detail page
+8. **Admin → Support** — lookup users, disputes, refunds
 
-### Docker Compose (requires virtualization)
-
-```bash
-python scripts/generate_signing_key.py --output secrets/signing_key.pem
-```
-
-### 3. Start with Docker Compose
-
-```bash
-cp .env.example .env
-docker compose up --build
-```
-
-- Frontend: http://localhost:3000
-- API docs: http://localhost:8000/api/v1/docs
-- Health: http://localhost:8000/api/v1/health
-
-### 4. Generate a demo receipt
-
-```bash
-curl -X POST http://localhost:8000/api/v1/generate-demo \
-  -H "Content-Type: application/json" \
-  -d '{"prompt": "Explain Merkle trees in one sentence."}'
-```
-
-Save the returned `receipt`, `merkle_proof`, and `root_signature` JSON objects.
-
-### 5. Verify offline
+### Verify offline (CLI)
 
 ```bash
 python scripts/verify_receipt.py \
@@ -88,36 +74,21 @@ python scripts/verify_receipt.py \
   --signature root_signature.json
 ```
 
-Or upload `receipt.json` at http://localhost:3000/verify
-
 ## Development
-
-### Run tests
 
 ```bash
 pip install -r backend/requirements.txt
 pytest
 ```
 
-### Project structure
-
-```
-backend/     FastAPI + crypto + Merkle + PostgreSQL
-frontend/    Next.js verification dashboard
-scripts/     Key generation + offline verifier
-docs/        Architecture and security documentation
-models/      Local Qwen model (not in git)
-secrets/     Ed25519 signing key (not in git)
-```
-
 ## Configuration
 
 | Variable | Default | Description |
 |----------|---------|-------------|
+| `TRUSTAI_JWT_SECRET` | change-me | JWT signing secret |
+| `TRUSTAI_DEFAULT_CREDITS` | 1000 | Starting credits per user |
 | `TRUSTAI_BATCH_SIZE` | 1 | Receipts per sealed batch |
-| `TRUSTAI_BATCH_SEAL_SECONDS` | 300 | Max seconds before sealing open batch |
-| `TRUSTAI_MODEL_PATH` | models/Qwen2.5-Coder-0.5B-Instruct-Q8_0.gguf | Path to GGUF model file |
-| `TRUSTAI_SIGNING_KEY_PATH` | secrets/signing_key.pem | Ed25519 private key |
+| `TRUSTAI_INFERENCE_BACKEND` | lmstudio | `lmstudio` or `gguf` |
 
 ## License
 

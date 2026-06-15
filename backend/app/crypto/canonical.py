@@ -30,6 +30,11 @@ def canonical_json(obj: dict[str, Any]) -> str:
     return json.dumps(obj, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
 
 
+def canonical_receipt_fields(receipt: dict[str, Any]) -> dict[str, Any]:
+    """Extract only fields that participate in receipt hashing."""
+    return {key: receipt[key] for key in FIELD_ORDER if key in receipt}
+
+
 def canonical_serialize(receipt: dict[str, Any]) -> bytes:
     """Produce deterministic canonical bytes for hashing."""
     lines = [CANONICAL_PREFIX]

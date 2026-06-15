@@ -11,6 +11,8 @@ class VerifyResponse(BaseModel):
     valid: bool
     checks: dict[str, bool]
     reason: str | None = None
+    user_message: str | None = None
+    trust_level: str = "failed"
     receipt_hash: str | None = None
     merkle_root: str | None = None
     batch_number: int | None = None

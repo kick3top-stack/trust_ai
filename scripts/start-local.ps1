@@ -16,33 +16,80 @@ Get-Content ".env" | ForEach-Object {
     }
 }
 
+if ($env:TRUSTAI_PUBLIC_HOST -and $env:TRUSTAI_PUBLIC_HOST -ne "http://localhost:3000") {
+    $origin = $env:TRUSTAI_PUBLIC_HOST.Trim().TrimEnd("/")
+    if ($env:TRUSTAI_CORS_ORIGINS -notlike "*$origin*") {
+        $env:TRUSTAI_CORS_ORIGINS = "$($env:TRUSTAI_CORS_ORIGINS),$origin"
+    }
+}
+
 $backendPort = if ($env:TRUSTAI_BACKEND_PORT) { $env:TRUSTAI_BACKEND_PORT } else { "8000" }
-$apiUrl = if ($env:NEXT_PUBLIC_API_URL) { $env:NEXT_PUBLIC_API_URL } else { "http://localhost:$backendPort/api/v1" }
+# Same-origin proxy via Next.js — works for localhost and public IP access
+$apiUrl = "/api/v1"
 
 function Test-TrustAIHealth([string]$Port) {
     try {
         $r = Invoke-WebRequest -Uri "http://127.0.0.1:$Port/api/v1/health" -UseBasicParsing -TimeoutSec 2
-        return ($r.StatusCode -eq 200 -and $r.Content -match '"auth_enabled"\s*:\s*true')
+        return ($r.StatusCode -eq 200 -and $r.Content -match '"auth_enabled"\s*:\s*true' -and $r.Content -match '"batches_list"\s*:\s*true')
     } catch { return $false }
 }
 
-function Get-ListeningPid([string]$Port) {
-    $lines = netstat -ano | Select-String ":$Port\s" | Select-String "LISTENING"
-    foreach ($line in $lines) {
-        if ($line -match "\s(\d+)\s*$") { return [int]$matches[1] }
+function Get-ListeningPids([string]$Port) {
+    $pids = @()
+    try {
+        $conns = Get-NetTCPConnection -LocalPort $Port -State Listen -ErrorAction SilentlyContinue
+        foreach ($c in $conns) {
+            if ($c.OwningProcess -gt 0) { $pids += $c.OwningProcess }
+        }
+    } catch { }
+    if ($pids.Count -eq 0) {
+        $lines = netstat -ano | Select-String ":$Port\s" | Select-String "LISTENING"
+        foreach ($line in $lines) {
+            if ($line -match "\s(\d+)\s*$") { $pids += [int]$matches[1] }
+        }
     }
-    return $null
+    return $pids | Select-Object -Unique
 }
 
-# Port conflict check — restart stale backend missing auth routes
-$existingPid = Get-ListeningPid $backendPort
-if ($existingPid -and -not (Test-TrustAIHealth $backendPort)) {
-    Write-Host "Stopping stale backend on port $backendPort (PID $existingPid)..." -ForegroundColor Yellow
-    taskkill /PID $existingPid /F 2>$null | Out-Null
-    Start-Sleep -Seconds 1
+function Stop-TrustAIBackends() {
+    Get-CimInstance Win32_Process -Filter "Name='python.exe'" -ErrorAction SilentlyContinue |
+        Where-Object {
+            $_.CommandLine -like "*uvicorn*app.main*" -or
+            $_.CommandLine -like "*multiprocessing.spawn*spawn_main*"
+        } |
+        ForEach-Object {
+            Write-Host "Stopping TrustAI backend (PID $($_.ProcessId))..." -ForegroundColor Yellow
+            Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue
+        }
 }
 
-Set-Content "frontend\.env.local" "NEXT_PUBLIC_API_URL=$apiUrl"
+function Stop-PortListeners([string]$Port) {
+    Stop-TrustAIBackends
+    foreach ($procId in (Get-ListeningPids $Port)) {
+        if (Get-Process -Id $procId -ErrorAction SilentlyContinue) {
+            Write-Host "Stopping process on port $Port (PID $procId)..." -ForegroundColor Yellow
+            Stop-Process -Id $procId -Force -ErrorAction SilentlyContinue
+        }
+    }
+}
+
+function Clear-BackendPort([string]$Port) {
+    for ($i = 0; $i -lt 5; $i++) {
+        if (Test-TrustAIHealth $Port) { return }
+        Stop-PortListeners $Port
+        Start-Sleep -Seconds 2
+    }
+}
+
+# Restart stale backend when health check fails (missing auth/batches routes)
+if (-not (Test-TrustAIHealth $backendPort)) {
+    Clear-BackendPort $backendPort
+}
+
+Set-Content "frontend\.env.local" @"
+NEXT_PUBLIC_API_URL=$apiUrl
+TRUSTAI_BACKEND_URL=http://127.0.0.1:$backendPort
+"@
 
 # Ensure core backend deps
 python -c "import httpx, fastapi" 2>$null
@@ -70,7 +117,10 @@ New-Item -ItemType Directory -Force -Path "data" | Out-Null
 Write-Host ""
 Write-Host "TrustAI (local)" -ForegroundColor Cyan
 Write-Host "  Frontend:  http://localhost:3000"
-Write-Host "  API:       $apiUrl"
+if ($env:TRUSTAI_PUBLIC_HOST) {
+    Write-Host "  Public:    $($env:TRUSTAI_PUBLIC_HOST)"
+}
+Write-Host "  API:       $apiUrl (proxied to http://127.0.0.1:$backendPort)"
 Write-Host "  Health:    http://localhost:$backendPort/api/v1/health"
 Write-Host ""
 Write-Host "Place model at: models\Qwen2.5-Coder-0.5B-Instruct-Q8_0.gguf"
@@ -98,7 +148,11 @@ if (-not (Test-TrustAIHealth $backendPort)) {
 
     if (-not $ready) {
         Write-Host "ERROR: Backend failed to start on port $backendPort" -ForegroundColor Red
-        if ($backendProc -and -not $backendProc.HasExited) { Stop-Process -Id $backendProc.Id -Force }
+        Write-Host "Try: npm run free-port" -ForegroundColor Yellow
+        Write-Host "Then: npm run dev" -ForegroundColor Yellow
+        if ($backendProc -and -not $backendProc.HasExited) {
+            Stop-Process -Id $backendProc.Id -Force -ErrorAction SilentlyContinue
+        }
         exit 1
     }
 } else {

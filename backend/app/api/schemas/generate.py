@@ -21,3 +21,7 @@ class GenerateDemoResponse(BaseModel):
     root_signature: dict | None
     batch_id: str
     receipt_id: str
+    credit_cost: int = 0
+    credit_balance: int = 0
+    prompt_tokens: int = 0
+    completion_tokens: int = 0

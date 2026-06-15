@@ -14,13 +14,14 @@ from app.crypto.key_manager import get_public_key_info
 from app.database.repositories import ReceiptRepository
 from app.database.session import get_session
 from app.dependencies import get_current_user, get_generation_service, get_inference_provider
-from app.domain.exceptions import ModelNotLoadedError
+from app.domain.exceptions import InsufficientCreditsError, ModelNotLoadedError
 from app.domain.interfaces.inference_provider import GenerationParams
 from app.domain.interfaces.inference_provider import InferenceProvider
 from app.models.orm import UserModel
 from app.services.access_control import assert_can_access_request
 from app.services.batch_service import BatchService
 from app.services.generation_service import AdminService, GenerationService, VerificationService
+from app.services.integrity_service import batch_integrity_status
 
 router = APIRouter()
 
@@ -42,6 +43,8 @@ async def generate_demo(
         result = await gen_service.generate_demo(body.prompt, params, user_id=user.id)
     except ModelNotLoadedError as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
+    except InsufficientCreditsError as exc:
+        raise HTTPException(status_code=402, detail=str(exc)) from exc
     except ConnectionError as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
     except OSError as exc:
@@ -58,6 +61,10 @@ async def generate_demo(
         root_signature=result["root_signature"],
         batch_id=result["batch_id"],
         receipt_id=result["receipt_id"],
+        credit_cost=result.get("credit_cost", 0),
+        credit_balance=result.get("credit_balance", 0),
+        prompt_tokens=result.get("prompt_tokens", 0),
+        completion_tokens=result.get("completion_tokens", 0),
     )
 
 
@@ -87,6 +94,16 @@ async def verify(
         receipt_id=receipt_id,
     )
     return VerifyResponse(**result)
+
+
+@router.get("/receipts")
+async def list_receipts(
+    session: AsyncSession = Depends(get_session),
+    user: UserModel = Depends(get_current_user),
+    limit: int = 50,
+) -> dict[str, Any]:
+    rows = await AdminService(session, user).list_receipts(limit=min(limit, 100))
+    return {"receipts": rows}
 
 
 @router.get("/receipts/{receipt_id}")
@@ -125,6 +142,40 @@ async def get_receipt_by_request(
     return data
 
 
+@router.post("/receipts/by-request/{request_id}/verify", response_model=VerifyResponse)
+async def verify_receipt_by_request(
+    request_id: UUID,
+    session: AsyncSession = Depends(get_session),
+    user: UserModel = Depends(get_current_user),
+) -> VerifyResponse:
+    await assert_can_access_request(session, request_id, user)
+    service = VerificationService(session)
+    try:
+        result = await service.verify_stored(request_id=request_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    return VerifyResponse(**result)
+
+
+@router.post("/receipts/{receipt_id}/verify", response_model=VerifyResponse)
+async def verify_receipt_by_id(
+    receipt_id: UUID,
+    session: AsyncSession = Depends(get_session),
+    user: UserModel = Depends(get_current_user),
+) -> VerifyResponse:
+    repo = ReceiptRepository(session)
+    row = await repo.get_by_id(receipt_id)
+    if row is None:
+        raise HTTPException(status_code=404, detail="Receipt not found")
+    await assert_can_access_request(session, row.request_id, user)
+    service = VerificationService(session)
+    try:
+        result = await service.verify_stored(receipt_id=receipt_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    return VerifyResponse(**result)
+
+
 @router.get("/receipts/{receipt_id}/package")
 async def get_receipt_package(
     receipt_id: UUID,
@@ -161,6 +212,33 @@ async def get_receipt_package(
     )
 
 
+@router.get("/batches")
+async def list_batches(
+    session: AsyncSession = Depends(get_session),
+    user: UserModel = Depends(get_current_user),
+    limit: int = 50,
+) -> dict[str, Any]:
+    from app.database.repositories import BatchRepository
+
+    repo = BatchRepository(session)
+    batches = await repo.list_batches(limit=min(limit, 100))
+    batch_rows = []
+    for b in batches:
+        batch_rows.append(
+            {
+                "batch_id": str(b.id),
+                "batch_number": b.batch_number,
+                "status": b.status,
+                "receipt_count": b.receipt_count,
+                "merkle_root": b.merkle_root,
+                "sealed_at": b.sealed_at.isoformat() if b.sealed_at else None,
+                "created_at": b.created_at.isoformat(),
+                "integrity_status": await batch_integrity_status(session, b.id, b.status),
+            }
+        )
+    return {"batches": batch_rows}
+
+
 @router.get("/batches/current")
 async def get_current_batch(
     session: AsyncSession = Depends(get_session),
@@ -190,6 +268,7 @@ async def get_batch(
     if batch is None:
         raise HTTPException(status_code=404, detail="Batch not found")
     sig = await service.get_signature_for_batch(batch_id)
+    integrity_status = await batch_integrity_status(session, batch_id, batch.status)
     return {
         "batch_id": str(batch.id),
         "batch_number": batch.batch_number,
@@ -197,6 +276,7 @@ async def get_batch(
         "receipt_count": batch.receipt_count,
         "merkle_root": batch.merkle_root,
         "sealed_at": batch.sealed_at.isoformat() if batch.sealed_at else None,
+        "integrity_status": integrity_status,
         "root_signature": sig,
     }
 
@@ -242,4 +322,7 @@ async def health(
         "model_path": str(model_path) if model_path else None,
         "lmstudio_url": settings.trustai_lmstudio_url if settings.trustai_inference_backend == "lmstudio" else None,
         "auth_enabled": True,
+        "batches_list": True,
+        "billing_statement": True,
+        "disputes": True,
     }

@@ -5,6 +5,8 @@ import { useRouter } from "next/navigation";
 import { useAuth } from "@/components/AuthProvider";
 import { PageHeader } from "@/components/ui/PageHeader";
 import { adminUpdateUser, fetchUsers, type AuthUser } from "@/lib/auth";
+import { adjustUserCredits } from "@/lib/api";
+import { promptNumber, promptText } from "@/lib/sweetAlert";
 
 export default function AdminUsersPage() {
   const { user, token, loading } = useAuth();
@@ -52,6 +54,35 @@ export default function AdminUsersPage() {
     }
   }
 
+  async function addCredits(target: AuthUser) {
+    if (!token) return;
+    const amount = await promptNumber({
+      title: "Adjust credits",
+      text: `Change balance for ${target.email}. Use a negative number to deduct.`,
+      inputValue: 100,
+      allowNegative: true,
+      allowZero: false,
+    });
+    if (amount === null) return;
+    const reason = await promptText({
+      title: "Adjustment reason",
+      text: "This note appears in the user's billing statement.",
+      inputValue: "Support credit adjustment",
+      required: true,
+    });
+    if (!reason) return;
+    setBusyId(target.id);
+    try {
+      await adjustUserCredits(token, target.id, amount, reason);
+      const users = await fetchUsers(token);
+      setUsers(users);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Update failed");
+    } finally {
+      setBusyId(null);
+    }
+  }
+
   if (loading || !user || user.role !== "admin") return null;
 
   return (
@@ -73,6 +104,7 @@ export default function AdminUsersPage() {
                 <th>Name</th>
                 <th>Email</th>
                 <th>Role</th>
+                <th>Credits</th>
                 <th>Status</th>
                 <th>Created</th>
                 <th>Actions</th>
@@ -88,6 +120,7 @@ export default function AdminUsersPage() {
                       {u.role}
                     </span>
                   </td>
+                  <td className="font-mono text-teal-400">{u.credit_balance ?? "—"}</td>
                   <td>
                     <span className={u.is_active ? "text-emerald-400" : "text-red-400"}>
                       {u.is_active ? "Active" : "Disabled"}
@@ -97,6 +130,13 @@ export default function AdminUsersPage() {
                     {new Date(u.created_at).toLocaleDateString()}
                   </td>
                   <td className="space-x-2 whitespace-nowrap">
+                    <button
+                      className="btn-secondary py-1 text-xs"
+                      disabled={busyId === u.id}
+                      onClick={() => addCredits(u)}
+                    >
+                      Adjust credits
+                    </button>
                     <button
                       className="btn-secondary py-1 text-xs"
                       disabled={busyId === u.id || u.id === user.id}

@@ -9,50 +9,74 @@ import { VerificationStatus } from "@/components/VerificationStatus";
 import { Tabs } from "@/components/ui/Tabs";
 import {
   downloadJson,
+  downloadReceiptPackage,
   fetchReceiptById,
   fetchReceiptByRequest,
   truncateHash,
-  verifyReceipt,
+  verifyStoredReceipt,
+  createDispute,
+  type GenerationSummary,
+  type ReceiptPackage,
   type VerifyResult,
 } from "@/lib/api";
-
-interface PackageData {
-  receipt: Record<string, unknown>;
-  merkle_proof: Record<string, unknown> | null;
-  root_signature: Record<string, unknown> | null;
-  response?: string;
-  receipt_id?: string;
-}
+import { promptText, showError, showSuccess } from "@/lib/sweetAlert";
 
 const TABS = [
-  { id: "overview", label: "Overview" },
-  { id: "proof", label: "Proof" },
-  { id: "raw", label: "Raw Data" },
+  { id: "overview", label: "Summary" },
+  { id: "proof", label: "Technical proof" },
+  { id: "raw", label: "Raw data" },
 ];
+
+function mergePackage(authoritative: ReceiptPackage, cached: ReceiptPackage | null): ReceiptPackage {
+  if (!cached) return authoritative;
+  const gen = authoritative.generation ?? cached.generation;
+  return {
+    ...authoritative,
+    generation: gen,
+    response: gen?.response_text ?? cached.response ?? authoritative.response,
+  };
+}
 
 export default function ReceiptDetailPage() {
   const params = useParams();
   const id = String(params.id);
-  const [pkg, setPkg] = useState<PackageData | null>(null);
+  const [pkg, setPkg] = useState<ReceiptPackage | null>(null);
   const [verifyResult, setVerifyResult] = useState<VerifyResult | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [tab, setTab] = useState("overview");
+  const [verifying, setVerifying] = useState(false);
+  const [disputeMsg, setDisputeMsg] = useState<string | null>(null);
 
   useEffect(() => {
     async function load() {
       try {
-        const cached =
+        let cached: ReceiptPackage | null = null;
+        const cachedRaw =
           sessionStorage.getItem(`receipt:${id}`) ||
           sessionStorage.getItem(`receipt:request:${id}`);
-        if (cached) {
-          setPkg(JSON.parse(cached));
-          return;
+        if (cachedRaw) {
+          try {
+            cached = JSON.parse(cachedRaw) as ReceiptPackage;
+          } catch {
+            cached = null;
+          }
         }
+
         let data = await fetchReceiptById(id);
         if (!data) data = await fetchReceiptByRequest(id);
-        if (data) {
-          setPkg(data);
-          sessionStorage.setItem(`receipt:${id}`, JSON.stringify(data));
+
+        if (data?.receipt) {
+          const merged = mergePackage(data as ReceiptPackage, cached);
+          setPkg(merged);
+          sessionStorage.setItem(`receipt:${id}`, JSON.stringify(merged));
+          if (merged.receipt?.request_id) {
+            sessionStorage.setItem(
+              `receipt:request:${merged.receipt.request_id}`,
+              JSON.stringify(merged),
+            );
+          }
+        } else if (cached?.receipt) {
+          setPkg(cached);
         } else {
           setError("Receipt not found");
         }
@@ -63,14 +87,28 @@ export default function ReceiptDetailPage() {
     load();
   }, [id]);
 
+  async function runVerify() {
+    setVerifying(true);
+    try {
+      const result = await verifyStoredReceipt(id);
+      setVerifyResult(result);
+    } catch {
+      setVerifyResult(null);
+    } finally {
+      setVerifying(false);
+    }
+  }
+
   useEffect(() => {
-    if (!pkg?.receipt || !pkg.merkle_proof || !pkg.root_signature) return;
-    verifyReceipt(pkg.receipt, pkg.merkle_proof, pkg.root_signature)
-      .then(setVerifyResult)
-      .catch(() => {});
-  }, [pkg]);
+    if (!pkg?.receipt) return;
+    runVerify();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pkg?.receipt_id, pkg?.receipt?.request_id]);
 
   const receipt = pkg?.receipt;
+  const gen = pkg?.generation;
+  const responseText = gen?.response_text || pkg?.response;
+  const storedPrompt = gen?.prompt_text;
   const proof = pkg?.merkle_proof as {
     receipt_hash?: string;
     leaf_index?: number;
@@ -78,9 +116,18 @@ export default function ReceiptDetailPage() {
     proof?: { hash: string; position: string }[];
   } | null;
 
+  const trustLevel = verifyResult?.trust_level;
+  const badge =
+    verifyResult?.valid
+      ? { text: "✓ Verified", className: "bg-emerald-500/20 text-emerald-400" }
+      : trustLevel === "batch"
+        ? { text: "✓ Charge recorded", className: "bg-amber-500/20 text-amber-400" }
+        : verifyResult
+          ? { text: "✗ Invalid", className: "bg-red-500/20 text-red-400" }
+          : null;
+
   return (
     <div>
-      {/* Header */}
       <div className="mb-6 flex flex-wrap items-start justify-between gap-4">
         <div>
           <h1 className="text-xl font-semibold text-white">Receipt Detail</h1>
@@ -91,15 +138,9 @@ export default function ReceiptDetailPage() {
             <p className="mt-0.5 text-xs text-slate-600">{String(receipt.timestamp)}</p>
           )}
         </div>
-        {verifyResult && (
-          <span
-            className={`rounded-full px-3 py-1 text-xs font-medium ${
-              verifyResult.valid
-                ? "bg-emerald-500/20 text-emerald-400"
-                : "bg-red-500/20 text-red-400"
-            }`}
-          >
-            {verifyResult.valid ? "✓ Verified" : "✗ Invalid"}
+        {badge && (
+          <span className={`rounded-full px-3 py-1 text-xs font-medium ${badge.className}`}>
+            {verifying ? "Checking…" : badge.text}
           </span>
         )}
       </div>
@@ -110,6 +151,12 @@ export default function ReceiptDetailPage() {
         </div>
       )}
 
+      {disputeMsg && (
+        <div className="mb-6 rounded-md border border-teal-500/30 bg-teal-500/10 px-4 py-3 text-sm text-teal-300">
+          {disputeMsg}
+        </div>
+      )}
+
       {receipt && (
         <>
           <div className="panel mb-6">
@@ -117,35 +164,61 @@ export default function ReceiptDetailPage() {
             <div className="panel-body">
               {tab === "overview" && (
                 <div className="grid gap-6 lg:grid-cols-2">
-                  <div className="space-y-3 text-sm">
-                    <MetaRow label="Receipt Hash" value={String(receipt.receipt_hash || "—")} mono />
+                  <div className="space-y-4 text-sm">
+                    <div className="rounded-lg border border-slate-800 bg-slate-900/40 p-4">
+                      <p className="mb-3 text-xs font-medium uppercase tracking-wider text-slate-500">
+                        What you were charged
+                      </p>
+                      <p className="text-2xl font-semibold text-teal-400">
+                        {String(receipt.credit_cost ?? gen?.credit_cost ?? "—")} credits
+                      </p>
+                      {(gen?.prompt_tokens != null || gen?.completion_tokens != null) && (
+                        <p className="mt-1 text-slate-400">
+                          {gen?.prompt_tokens ?? 0} prompt + {gen?.completion_tokens ?? 0} response
+                          tokens
+                        </p>
+                      )}
+                    </div>
+                    <MetaRow label="Model" value={String(receipt.model_name || gen?.model_name || "—")} />
+                    <MetaRow label="When" value={String(receipt.timestamp || gen?.created_at || "—")} />
                     <MetaRow label="Request ID" value={String(receipt.request_id || "—")} mono />
-                    <MetaRow label="Model" value={String(receipt.model_name || "—")} />
-                    <MetaRow label="Model Version" value={String(receipt.model_version || "—")} />
-                    <MetaRow label="Model Hash" value={truncateHash(String(receipt.model_hash), 16)} mono />
-                    <MetaRow label="Prompt Hash" value={truncateHash(String(receipt.prompt_hash), 16)} mono />
-                    <MetaRow label="Output Hash" value={truncateHash(String(receipt.response_hash), 16)} mono />
-                    <MetaRow label="Credits" value={String(receipt.credit_cost ?? "—")} />
-                    <MetaRow label="Seed" value={String(receipt.seed ?? "—")} />
-                  </div>
-                  <div className="space-y-4">
                     {verifyResult && (
                       <VerificationStatus
                         checks={verifyResult.checks}
                         valid={verifyResult.valid}
                         reason={verifyResult.reason}
+                        userMessage={verifyResult.user_message}
+                        trustLevel={verifyResult.trust_level}
                         compact
                       />
                     )}
-                    {pkg?.response && (
+                  </div>
+                  <div className="space-y-4">
+                    {storedPrompt && (
                       <div className="rounded-lg border border-slate-800 bg-slate-900/40 p-4">
                         <p className="mb-2 text-xs font-medium uppercase tracking-wider text-slate-500">
-                          Model Response
+                          Your prompt
+                        </p>
+                        <p className="max-h-40 overflow-y-auto whitespace-pre-wrap text-slate-300">
+                          {storedPrompt}
+                        </p>
+                      </div>
+                    )}
+                    {responseText && (
+                      <div className="rounded-lg border border-slate-800 bg-slate-900/40 p-4">
+                        <p className="mb-2 text-xs font-medium uppercase tracking-wider text-slate-500">
+                          Model response
                         </p>
                         <div className="max-h-80 overflow-y-auto pr-1">
-                          <MarkdownContent>{pkg.response}</MarkdownContent>
+                          <MarkdownContent>{responseText}</MarkdownContent>
                         </div>
                       </div>
+                    )}
+                    {!storedPrompt && !responseText && (
+                      <p className="text-sm text-slate-500">
+                        Prompt and response text are only stored for generations after this update.
+                        Cryptographic hashes below still prove integrity.
+                      </p>
                     )}
                   </div>
                 </div>
@@ -153,6 +226,13 @@ export default function ReceiptDetailPage() {
 
               {tab === "proof" && (
                 <div className="space-y-6">
+                  <div className="grid gap-3 text-sm lg:grid-cols-2">
+                    <MetaRow label="Receipt Hash" value={String(receipt.receipt_hash || "—")} mono />
+                    <MetaRow label="Model Hash" value={truncateHash(String(receipt.model_hash), 16)} mono />
+                    <MetaRow label="Prompt Hash" value={truncateHash(String(receipt.prompt_hash), 16)} mono />
+                    <MetaRow label="Output Hash" value={truncateHash(String(receipt.response_hash), 16)} mono />
+                    <MetaRow label="Seed" value={String(receipt.seed ?? "—")} />
+                  </div>
                   <div>
                     <p className="mb-4 text-xs font-medium uppercase tracking-wider text-slate-500">
                       Merkle Inclusion Proof
@@ -198,7 +278,6 @@ export default function ReceiptDetailPage() {
             </div>
           </div>
 
-          {/* Actions */}
           <div className="flex flex-wrap gap-3">
             <button className="btn-secondary" onClick={() => downloadJson("receipt.json", pkg.receipt)}>
               Download JSON
@@ -206,12 +285,41 @@ export default function ReceiptDetailPage() {
             <button
               className="btn-secondary"
               onClick={() => {
-                if (pkg.merkle_proof && pkg.root_signature) {
-                  verifyReceipt(pkg.receipt, pkg.merkle_proof, pkg.root_signature).then(setVerifyResult);
+                const rid = pkg.receipt_id || id;
+                downloadReceiptPackage(rid).catch((e) =>
+                  showError("Download failed", e instanceof Error ? e.message : "Unknown error"),
+                );
+              }}
+            >
+              Download Package (.zip)
+            </button>
+            <button
+              className="btn-secondary"
+              onClick={async () => {
+                const requestId = String(receipt.request_id || "");
+                if (!requestId) return;
+                const reason = await promptText({
+                  title: "Report billing issue",
+                  text: "Tell us what looks wrong with this charge. Support will review your request.",
+                  inputValue: "I believe this charge is incorrect because…",
+                  inputType: "textarea",
+                  minLength: 10,
+                  placeholder: "Describe the issue in at least 10 characters…",
+                });
+                if (!reason) return;
+                try {
+                  await createDispute(requestId, reason);
+                  setDisputeMsg("Dispute submitted. Support will review your request.");
+                  await showSuccess("Dispute submitted", "Support will review your request soon.");
+                } catch (e) {
+                  setError(e instanceof Error ? e.message : "Dispute failed");
                 }
               }}
             >
-              Verify Again
+              Report billing issue
+            </button>
+            <button className="btn-secondary" onClick={runVerify} disabled={verifying}>
+              {verifying ? "Verifying…" : "Verify Again"}
             </button>
             <Link href="/verify" className="btn-secondary">
               Share

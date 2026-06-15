@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { PageHeader } from "@/components/ui/PageHeader";
 import { fetchPublicKey } from "@/lib/api";
+import { showInfo } from "@/lib/sweetAlert";
 
 export default function SettingsPage() {
   const [publicKey, setPublicKey] = useState<string>("");
@@ -52,7 +53,7 @@ export default function SettingsPage() {
                 {label}
               </label>
             ))}
-            <button className="btn-primary mt-2" onClick={() => alert("Settings saved locally (MVP)")}>
+            <button className="btn-primary mt-2" onClick={() => showInfo("Settings saved", "Your preferences were saved locally (MVP).")}>
               Save
             </button>
           </div>
@@ -66,7 +67,7 @@ export default function SettingsPage() {
               ed25519: {publicKey ? `${publicKey.slice(0, 24)}${"*".repeat(24)}` : "loading..."}
             </div>
             <div className="flex gap-3">
-              <button className="btn-secondary" onClick={() => alert("Key rotation documented in docs/signatures.md")}>
+              <button className="btn-secondary" onClick={() => showInfo("Key rotation", "Key rotation is documented in docs/signatures.md")}>
                 Rotate Key
               </button>
             </div>

@@ -14,5 +14,9 @@ class ModelNotLoadedError(DomainError):
     pass
 
 
+class InsufficientCreditsError(DomainError):
+    pass
+
+
 class VerificationError(DomainError):
     pass

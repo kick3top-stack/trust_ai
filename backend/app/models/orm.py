@@ -19,6 +19,7 @@ class UserModel(Base):
     display_name: Mapped[str] = mapped_column(String(128), nullable=False)
     role: Mapped[str] = mapped_column(String(32), nullable=False, default="user")
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+    credit_balance: Mapped[int] = mapped_column(Integer, default=1000, nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     last_login_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
@@ -34,12 +35,30 @@ class GenerationRequestModel(Base):
     generation_parameters: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False)
     prompt_hash: Mapped[str] = mapped_column(String(64), nullable=False)
     response_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    prompt_text: Mapped[str | None] = mapped_column(String(8192), nullable=True)
+    response_text: Mapped[str | None] = mapped_column(String(65536), nullable=True)
+    prompt_tokens: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    completion_tokens: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     model_name: Mapped[str] = mapped_column(String(128), nullable=False)
     model_version: Mapped[str] = mapped_column(String(64), nullable=False)
     model_hash: Mapped[str] = mapped_column(String(64), nullable=False)
     seed: Mapped[int] = mapped_column(Integer, nullable=False)
 
     receipt: Mapped["ReceiptModel | None"] = relationship(back_populates="generation_request")
+
+
+class CreditTransactionModel(Base):
+    __tablename__ = "credit_transactions"
+
+    id: Mapped[UUID] = mapped_column(Uuid, primary_key=True)
+    user_id: Mapped[UUID] = mapped_column(Uuid, ForeignKey("users.id"), nullable=False, index=True)
+    amount: Mapped[int] = mapped_column(Integer, nullable=False)
+    balance_after: Mapped[int] = mapped_column(Integer, nullable=False)
+    txn_type: Mapped[str] = mapped_column(String(32), nullable=False)
+    description: Mapped[str] = mapped_column(String(512), nullable=False)
+    request_id: Mapped[UUID | None] = mapped_column(Uuid, ForeignKey("generation_requests.id"), nullable=True)
+    actor_id: Mapped[UUID | None] = mapped_column(Uuid, ForeignKey("users.id"), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 
 class BatchModel(Base):
@@ -107,3 +126,20 @@ class VerificationLogModel(Base):
     failure_reason: Mapped[str | None] = mapped_column(String(512), nullable=True)
     verification_steps: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)
     verified_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class DisputeModel(Base):
+    __tablename__ = "disputes"
+
+    id: Mapped[UUID] = mapped_column(Uuid, primary_key=True)
+    user_id: Mapped[UUID] = mapped_column(Uuid, ForeignKey("users.id"), nullable=False, index=True)
+    request_id: Mapped[UUID] = mapped_column(Uuid, ForeignKey("generation_requests.id"), nullable=False, index=True)
+    reason: Mapped[str] = mapped_column(String(2000), nullable=False)
+    status: Mapped[str] = mapped_column(String(32), nullable=False, default="open")
+    credit_cost: Mapped[int] = mapped_column(Integer, nullable=False)
+    resolution_note: Mapped[str | None] = mapped_column(String(2000), nullable=True)
+    resolved_by: Mapped[UUID | None] = mapped_column(Uuid, ForeignKey("users.id"), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )

@@ -30,6 +30,25 @@ async def init_database() -> None:
             cols = {c["name"] for c in insp.get_columns("generation_requests")}
             if "user_id" not in cols:
                 sync_conn.execute(text("ALTER TABLE generation_requests ADD COLUMN user_id CHAR(36)"))
+            if "prompt_text" not in cols:
+                sync_conn.execute(text("ALTER TABLE generation_requests ADD COLUMN prompt_text VARCHAR(8192)"))
+            if "response_text" not in cols:
+                sync_conn.execute(text("ALTER TABLE generation_requests ADD COLUMN response_text VARCHAR(65536)"))
+            if "prompt_tokens" not in cols:
+                sync_conn.execute(
+                    text("ALTER TABLE generation_requests ADD COLUMN prompt_tokens INTEGER NOT NULL DEFAULT 0")
+                )
+            if "completion_tokens" not in cols:
+                sync_conn.execute(
+                    text("ALTER TABLE generation_requests ADD COLUMN completion_tokens INTEGER NOT NULL DEFAULT 0")
+                )
+        if insp.has_table("users"):
+            cols = {c["name"] for c in insp.get_columns("users")}
+            if "credit_balance" not in cols:
+                sync_conn.execute(
+                    text("ALTER TABLE users ADD COLUMN credit_balance INTEGER NOT NULL DEFAULT 1000")
+                )
+                sync_conn.execute(text("UPDATE users SET credit_balance = 1000 WHERE credit_balance IS NULL"))
 
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)

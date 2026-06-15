@@ -5,6 +5,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.api.routes.auth import router as auth_router, users_router
+from app.api.routes.billing import billing_router, disputes_router, support_router
 from app.api.routes.router import router
 from app.config import settings
 from app.database.repositories import BatchRepository
@@ -50,6 +51,11 @@ async def lifespan(app: FastAPI):
         async with async_session_factory() as session:
             await AuthService(session).ensure_bootstrap_admin()
             await session.commit()
+            from app.services.ledger_repair import repair_missing_generation_charges
+
+            repaired = await repair_missing_generation_charges(session)
+            if repaired:
+                print(f"TrustAI: repaired {repaired} missing generation charge(s)")
     seal_task = asyncio.create_task(_seal_expired_batches())
     yield
     seal_task.cancel()
@@ -76,6 +82,9 @@ def create_app() -> FastAPI:
     app.include_router(router, prefix="/api/v1")
     app.include_router(auth_router, prefix="/api/v1")
     app.include_router(users_router, prefix="/api/v1")
+    app.include_router(billing_router, prefix="/api/v1")
+    app.include_router(support_router, prefix="/api/v1")
+    app.include_router(disputes_router, prefix="/api/v1")
     return app
 
 

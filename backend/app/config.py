@@ -48,6 +48,7 @@ class Settings(BaseSettings):
     trustai_admin_email: str = "admin@trustai.local"
     trustai_admin_password: str = "admin123"
     trustai_admin_display_name: str = "Administrator"
+    trustai_default_credits: int = 1000
 
     @model_validator(mode="after")
     def resolve_paths(self) -> "Settings":

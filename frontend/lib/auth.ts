@@ -6,6 +6,7 @@ export interface AuthUser {
   display_name: string;
   role: string;
   is_active: boolean;
+  credit_balance: number;
   created_at: string;
   last_login_at: string | null;
 }
@@ -29,12 +30,24 @@ async function parseAuthError(res: Response): Promise<string> {
   const err = await res.json().catch(() => ({}));
   const detail = err.detail;
   if (typeof detail === "string") return detail;
+  if (Array.isArray(detail)) {
+    return detail.map((d: { msg?: string }) => d.msg || "Invalid input").join(". ");
+  }
+  if (res.status === 422) return "Invalid email or password format";
   if (res.status === 401) return "Please sign in to continue";
   return "Request failed";
 }
 
+async function authFetch(url: string, init?: RequestInit): Promise<Response> {
+  try {
+    return await fetch(url, init);
+  } catch {
+    throw new Error("Cannot reach the API. Run npm run dev from the project root.");
+  }
+}
+
 export async function loginUser(email: string, password: string): Promise<AuthResponse> {
-  const res = await fetch(`${API_BASE}/auth/login`, {
+  const res = await authFetch(`${API_BASE}/auth/login`, {
     method: "POST",
     headers: authHeaders(),
     body: JSON.stringify({ email, password }),
@@ -48,7 +61,7 @@ export async function registerUser(
   password: string,
   displayName: string,
 ): Promise<AuthResponse> {
-  const res = await fetch(`${API_BASE}/auth/register`, {
+  const res = await authFetch(`${API_BASE}/auth/register`, {
     method: "POST",
     headers: authHeaders(),
     body: JSON.stringify({ email, password, display_name: displayName }),
@@ -85,7 +98,7 @@ export async function fetchUsers(token: string): Promise<AuthUser[]> {
 export async function adminUpdateUser(
   token: string,
   userId: string,
-  body: { role?: string; is_active?: boolean; display_name?: string },
+  body: { role?: string; is_active?: boolean; display_name?: string; credit_balance?: number },
 ): Promise<AuthUser> {
   const res = await fetch(`${API_BASE}/users/${userId}`, {
     method: "PATCH",

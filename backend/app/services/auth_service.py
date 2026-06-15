@@ -10,6 +10,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
+from app.services.credit_service import CreditService
 from app.models.orm import UserModel
 
 JWT_ALGORITHM = "HS256"
@@ -40,6 +41,7 @@ def user_to_dict(user: UserModel) -> dict[str, Any]:
         "display_name": user.display_name,
         "role": user.role,
         "is_active": user.is_active,
+        "credit_balance": user.credit_balance,
         "created_at": user.created_at.isoformat(),
         "last_login_at": user.last_login_at.isoformat() if user.last_login_at else None,
     }
@@ -73,9 +75,17 @@ class AuthService:
             display_name=display_name.strip() or email.split("@")[0],
             role="user",
             is_active=True,
+            credit_balance=settings.trustai_default_credits,
         )
         self._session.add(user)
         await self._session.flush()
+        await CreditService(self._session).record(
+            user_id=user.id,
+            amount=settings.trustai_default_credits,
+            balance_after=user.credit_balance,
+            txn_type="initial_grant",
+            description="Welcome credits",
+        )
         return user
 
     async def login(self, *, email: str, password: str) -> tuple[UserModel, str]:
@@ -119,6 +129,8 @@ class AuthService:
         role: str | None = None,
         is_active: bool | None = None,
         display_name: str | None = None,
+        credit_balance: int | None = None,
+        actor_id: UUID | None = None,
     ) -> UserModel | None:
         user = await self.get_by_id(user_id)
         if user is None:
@@ -131,6 +143,46 @@ class AuthService:
             user.is_active = is_active
         if display_name is not None:
             user.display_name = display_name.strip() or user.display_name
+        if credit_balance is not None:
+            if credit_balance < 0:
+                raise ValueError("Credit balance cannot be negative")
+            delta = credit_balance - user.credit_balance
+            if delta != 0:
+                user.credit_balance = credit_balance
+                await CreditService(self._session).record(
+                    user_id=user.id,
+                    amount=delta,
+                    balance_after=user.credit_balance,
+                    txn_type="admin_adjustment",
+                    description="Admin balance update",
+                    actor_id=actor_id,
+                )
+        await self._session.flush()
+        return user
+
+    async def adjust_user_credits(
+        self,
+        user_id: UUID,
+        *,
+        amount: int,
+        reason: str,
+        actor_id: UUID,
+    ) -> UserModel:
+        user = await self.get_by_id(user_id)
+        if user is None:
+            raise ValueError("User not found")
+        new_balance = user.credit_balance + amount
+        if new_balance < 0:
+            raise ValueError("Credit balance cannot be negative")
+        user.credit_balance = new_balance
+        await CreditService(self._session).record(
+            user_id=user.id,
+            amount=amount,
+            balance_after=user.credit_balance,
+            txn_type="admin_adjustment",
+            description=reason.strip(),
+            actor_id=actor_id,
+        )
         await self._session.flush()
         return user
 
@@ -142,6 +194,16 @@ class AuthService:
             )
         )
         return int(result.scalar_one())
+
+    async def deduct_credits(self, user_id: UUID, amount: int) -> UserModel:
+        user = await self.get_by_id(user_id)
+        if user is None:
+            raise ValueError("User not found")
+        if user.credit_balance < amount:
+            raise ValueError("Insufficient credits")
+        user.credit_balance -= amount
+        await self._session.flush()
+        return user
 
     async def ensure_bootstrap_admin(self) -> None:
         result = await self._session.execute(select(func.count()).select_from(UserModel))
@@ -155,6 +217,7 @@ class AuthService:
             display_name=settings.trustai_admin_display_name,
             role="admin",
             is_active=True,
+            credit_balance=settings.trustai_default_credits,
         )
         self._session.add(admin)
         await self._session.flush()

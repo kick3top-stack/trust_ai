@@ -2,11 +2,11 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { FormEvent, useState } from "react";
+import { FormEvent, useEffect, useState } from "react";
 import { useAuth } from "@/components/AuthProvider";
 
 export default function RegisterPage() {
-  const { register, user } = useAuth();
+  const { register, user, loading: authLoading } = useAuth();
   const router = useRouter();
   const [displayName, setDisplayName] = useState("");
   const [email, setEmail] = useState("");
@@ -14,8 +14,13 @@ export default function RegisterPage() {
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
 
-  if (user) {
-    router.replace("/dashboard");
+  useEffect(() => {
+    if (!authLoading && user) {
+      router.replace("/dashboard");
+    }
+  }, [authLoading, user, router]);
+
+  if (authLoading || user) {
     return null;
   }
 
@@ -58,7 +63,8 @@ export default function RegisterPage() {
           <label className="block text-sm">
             <span className="mb-1 block text-slate-400">Email</span>
             <input
-              type="email"
+              type="text"
+              autoComplete="email"
               className="input-field w-full"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
