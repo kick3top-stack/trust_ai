@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import hashlib
+import json
+from collections.abc import AsyncIterator
 from pathlib import Path
 
 import httpx
@@ -8,6 +10,7 @@ import httpx
 from app.config import settings
 from app.crypto.hashing import sha256_hex
 from app.domain.interfaces.inference_provider import GenerationParams, GenerationResult
+from app.inference.streaming import InferenceStreamChunk
 
 
 class LmStudioProvider:
@@ -99,4 +102,58 @@ class LmStudioProvider:
             model_name=self.MODEL_NAME,
             model_version=self.MODEL_VERSION,
             model_hash=self._model_hash or "",
+        )
+
+    async def stream_generate(
+        self, prompt: str, params: GenerationParams
+    ) -> AsyncIterator[InferenceStreamChunk]:
+        if not self._loaded:
+            self.load()
+
+        payload = {
+            "model": self._lm_model_id or self.MODEL_NAME,
+            "messages": [{"role": "user", "content": prompt}],
+            "temperature": params.temperature,
+            "max_tokens": params.max_tokens,
+            "top_p": params.top_p,
+            "seed": params.seed,
+            "stream": True,
+            "stream_options": {"include_usage": True},
+        }
+
+        usage: dict[str, int] = {}
+        async with httpx.AsyncClient(timeout=120.0) as client:
+            try:
+                async with client.stream(
+                    "POST", f"{self._base_url}/chat/completions", json=payload
+                ) as resp:
+                    resp.raise_for_status()
+                    async for line in resp.aiter_lines():
+                        if not line.startswith("data: "):
+                            continue
+                        data = line[6:].strip()
+                        if data == "[DONE]":
+                            break
+                        try:
+                            chunk = json.loads(data)
+                        except json.JSONDecodeError:
+                            continue
+                        if chunk.get("usage"):
+                            usage = chunk["usage"]
+                        choices = chunk.get("choices") or []
+                        if not choices:
+                            continue
+                        delta = choices[0].get("delta") or {}
+                        text = delta.get("content") or ""
+                        if text:
+                            yield InferenceStreamChunk(text=text)
+            except httpx.ConnectError as exc:
+                raise ConnectionError(
+                    "LM Studio server not running. Start Local Server in LM Studio."
+                ) from exc
+
+        yield InferenceStreamChunk(
+            done=True,
+            prompt_tokens=int(usage.get("prompt_tokens", 0)) or None,
+            completion_tokens=int(usage.get("completion_tokens", 0)) or None,
         )

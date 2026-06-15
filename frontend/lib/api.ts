@@ -15,7 +15,7 @@ async function apiFetch(input: string, init?: RequestInit): Promise<Response | n
   }
 }
 
-function apiHeaders(extra?: HeadersInit): HeadersInit {
+export function apiHeaders(extra?: HeadersInit): HeadersInit {
   const headers: Record<string, string> = { "Content-Type": "application/json" };
   if (typeof window !== "undefined") {
     const token = localStorage.getItem(TOKEN_KEY);

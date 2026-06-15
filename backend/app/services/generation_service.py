@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import AsyncIterator
 from typing import Any
 from uuid import UUID, uuid4
 
@@ -9,10 +10,16 @@ from app.config import settings
 from app.crypto.hashing import hash_text
 from app.database.repositories import VerificationLogRepository
 from app.domain.exceptions import InsufficientCreditsError, ModelNotLoadedError
-from app.domain.interfaces.inference_provider import GenerationParams, InferenceProvider
+from app.domain.interfaces.inference_provider import GenerationParams, GenerationResult, InferenceProvider
+from app.inference.streaming import InferenceStreamChunk
 from app.models.orm import UserModel
 from app.services.auth_service import AuthService
-from app.services.credit_cost import compute_credit_cost, estimate_generation_cost
+from app.services.credit_cost import (
+    compute_credit_cost,
+    estimate_completion_tokens,
+    estimate_generation_cost,
+    estimate_prompt_tokens,
+)
 from app.services.credit_service import CreditService
 from app.services.integrity_service import batch_integrity_status, integrity_for_request
 from app.services.receipt_service import ReceiptService
@@ -25,31 +32,30 @@ class GenerationService:
         self._inference = inference
         self._receipt_service = ReceiptService(session)
 
-    async def generate_demo(
-        self,
-        prompt: str,
-        params: GenerationParams,
-        user_id: UUID,
-    ) -> dict[str, Any]:
+    async def _ensure_model_loaded(self) -> None:
         if not self._inference.is_loaded:
             try:
                 self._inference.load()
             except Exception as exc:
                 raise ModelNotLoadedError(str(exc)) from exc
 
-        auth = AuthService(self._session)
-        user = await auth.get_by_id(user_id)
-        if user is None:
-            raise InsufficientCreditsError("User not found")
+    async def _validate_credits(self, user: UserModel, prompt: str, params: GenerationParams) -> None:
         estimated_cost = estimate_generation_cost(prompt, params.max_tokens)
         if user.credit_balance < estimated_cost:
             raise InsufficientCreditsError(
                 f"Insufficient credits: need at least {estimated_cost}, have {user.credit_balance}"
             )
 
-        request_id = uuid4()
-        result = await self._inference.generate(prompt, params)
-
+    async def _register_generation(
+        self,
+        *,
+        request_id: UUID,
+        user_id: UUID,
+        prompt: str,
+        params: GenerationParams,
+        result: GenerationResult,
+        user: UserModel,
+    ) -> dict[str, Any]:
         prompt_hash = hash_text(prompt)
         response_hash = hash_text(result.response_text)
         total_tokens = result.prompt_tokens + result.completion_tokens
@@ -84,6 +90,7 @@ class GenerationService:
             user_id=user_id,
         )
 
+        auth = AuthService(self._session)
         await auth.deduct_credits(user_id, credit_cost)
         updated_user = await auth.get_by_id(user_id)
         credit_svc = CreditService(self._session)
@@ -106,6 +113,111 @@ class GenerationService:
             "completion_tokens": result.completion_tokens,
             **package,
         }
+
+    async def _iter_inference(
+        self, prompt: str, params: GenerationParams
+    ) -> AsyncIterator[InferenceStreamChunk]:
+        stream_generate = getattr(self._inference, "stream_generate", None)
+        if stream_generate is not None:
+            async for chunk in stream_generate(prompt, params):
+                yield chunk
+            return
+
+        result = await self._inference.generate(prompt, params)
+        if result.response_text:
+            yield InferenceStreamChunk(text=result.response_text)
+        yield InferenceStreamChunk(done=True, result=result)
+
+    def _result_from_stream(
+        self, prompt: str, response_text: str, chunk: InferenceStreamChunk
+    ) -> GenerationResult:
+        if chunk.result is not None:
+            return chunk.result
+
+        prompt_tokens = chunk.prompt_tokens or 0
+        completion_tokens = chunk.completion_tokens or 0
+        if prompt_tokens <= 0:
+            prompt_tokens = estimate_prompt_tokens(prompt)
+        if completion_tokens <= 0:
+            completion_tokens = estimate_completion_tokens(response_text)
+
+        model_name = getattr(self._inference, "MODEL_NAME", "unknown")
+        model_version = getattr(self._inference, "MODEL_VERSION", "")
+        model_hash = self._inference.model_hash or ""
+
+        return GenerationResult(
+            response_text=response_text,
+            prompt_tokens=prompt_tokens,
+            completion_tokens=completion_tokens,
+            model_name=model_name,
+            model_version=model_version,
+            model_hash=model_hash,
+        )
+
+    async def generate_demo(
+        self,
+        prompt: str,
+        params: GenerationParams,
+        user_id: UUID,
+    ) -> dict[str, Any]:
+        await self._ensure_model_loaded()
+
+        auth = AuthService(self._session)
+        user = await auth.get_by_id(user_id)
+        if user is None:
+            raise InsufficientCreditsError("User not found")
+        await self._validate_credits(user, prompt, params)
+
+        request_id = uuid4()
+        result = await self._inference.generate(prompt, params)
+        return await self._register_generation(
+            request_id=request_id,
+            user_id=user_id,
+            prompt=prompt,
+            params=params,
+            result=result,
+            user=user,
+        )
+
+    async def stream_generate_demo(
+        self,
+        prompt: str,
+        params: GenerationParams,
+        user_id: UUID,
+    ) -> AsyncIterator[dict[str, Any]]:
+        await self._ensure_model_loaded()
+
+        auth = AuthService(self._session)
+        user = await auth.get_by_id(user_id)
+        if user is None:
+            raise InsufficientCreditsError("User not found")
+        await self._validate_credits(user, prompt, params)
+
+        request_id = uuid4()
+        parts: list[str] = []
+        final_chunk: InferenceStreamChunk | None = None
+
+        async for chunk in self._iter_inference(prompt, params):
+            if chunk.text:
+                parts.append(chunk.text)
+                yield {"event": "token", "data": {"text": chunk.text}}
+            if chunk.done:
+                final_chunk = chunk
+
+        response_text = "".join(parts)
+        if final_chunk is None:
+            raise ModelNotLoadedError("Inference stream ended without completion")
+
+        result = self._result_from_stream(prompt, response_text, final_chunk)
+        payload = await self._register_generation(
+            request_id=request_id,
+            user_id=user_id,
+            prompt=prompt,
+            params=params,
+            result=result,
+            user=user,
+        )
+        yield {"event": "done", "data": payload}
 
 
 class VerificationService:

@@ -5,7 +5,9 @@ import { useEffect, useState } from "react";
 import { useAuth } from "@/components/AuthProvider";
 import { MarkdownContent } from "@/components/MarkdownContent";
 import { PageHeader } from "@/components/ui/PageHeader";
-import { generateDemo, estimateMaxCredits } from "@/lib/api";
+import { generateDemoStream } from "@/lib/generateStream";
+import type { GenerateDemoResponse } from "@/lib/api";
+import { estimateMaxCredits } from "@/lib/api";
 import { fetchBillingConfig } from "@/lib/credits";
 
 const MODELS = [{ id: "qwen2.5-coder-0.5b-instruct", label: "Qwen2.5-Coder-0.5B-Instruct (Q8_0)" }];
@@ -35,43 +37,60 @@ export default function PlaygroundPage() {
 
   const estimatedCredits = estimateMaxCredits(maxTokens, prompt, creditRate);
 
+  function storeReceipt(result: GenerateDemoResponse) {
+    const payload = {
+      receipt: result.receipt,
+      merkle_proof: result.merkle_proof,
+      root_signature: result.root_signature,
+      response: result.response,
+      receipt_id: result.receipt_id,
+      generation: {
+        prompt_text: prompt,
+        response_text: result.response,
+        prompt_tokens: result.prompt_tokens,
+        completion_tokens: result.completion_tokens,
+        credit_cost: result.credit_cost,
+        model_name: String(result.receipt.model_name || model),
+        created_at: String(result.receipt.timestamp || new Date().toISOString()),
+      },
+    };
+    sessionStorage.setItem(`receipt:${result.receipt_id}`, JSON.stringify(payload));
+    sessionStorage.setItem(`receipt:request:${result.request_id}`, JSON.stringify(payload));
+  }
+
   async function handleGenerate() {
     setLoading(true);
     setError(null);
     setChargeSummary(null);
-    setOutput(null);
+    setOutput("");
     setReceiptId(null);
     try {
-      const result = await generateDemo(prompt, {
-        temperature,
-        max_tokens: maxTokens,
-        top_p: topP,
-        seed,
-      });
-      setOutput(result.response);
-      setReceiptId(result.receipt_id);
-      setChargeSummary(
-        `Charged ${result.credit_cost} credits (${result.prompt_tokens + result.completion_tokens} tokens) · Balance ${result.credit_balance}`,
-      );
-      const payload = {
-        receipt: result.receipt,
-        merkle_proof: result.merkle_proof,
-        root_signature: result.root_signature,
-        response: result.response,
-        receipt_id: result.receipt_id,
-        generation: {
-          prompt_text: prompt,
-          response_text: result.response,
-          prompt_tokens: result.prompt_tokens,
-          completion_tokens: result.completion_tokens,
-          credit_cost: result.credit_cost,
-          model_name: String(result.receipt.model_name || model),
-          created_at: String(result.receipt.timestamp || new Date().toISOString()),
+      await generateDemoStream(
+        prompt,
+        {
+          temperature,
+          max_tokens: maxTokens,
+          top_p: topP,
+          seed,
         },
-      };
-      sessionStorage.setItem(`receipt:${result.receipt_id}`, JSON.stringify(payload));
-      sessionStorage.setItem(`receipt:request:${result.request_id}`, JSON.stringify(payload));
-      await refreshUser();
+        {
+          onToken: (text) => {
+            setOutput((prev) => `${prev ?? ""}${text}`);
+          },
+          onDone: async (result) => {
+            setOutput(result.response);
+            setReceiptId(result.receipt_id);
+            setChargeSummary(
+              `Charged ${result.credit_cost} credits (${result.prompt_tokens + result.completion_tokens} tokens) · Balance ${result.credit_balance}`,
+            );
+            storeReceipt(result);
+            await refreshUser();
+          },
+          onError: (message) => {
+            setError(message);
+          },
+        },
+      );
     } catch (e) {
       setError(e instanceof Error ? e.message : "Generation failed");
     } finally {
@@ -212,13 +231,15 @@ export default function PlaygroundPage() {
         <div className="panel flex min-h-[480px] flex-col">
           <div className="panel-header">Generation Output</div>
           <div className="panel-body flex min-h-0 flex-1 flex-col">
-            {loading ? (
-              <div className="flex flex-1 items-center justify-center text-slate-500">
-                <span className="animate-pulse">Running inference...</span>
-              </div>
-            ) : output ? (
+            {loading || output ? (
               <div className="min-h-0 flex-1 overflow-y-auto rounded-md border border-slate-800 bg-slate-950/40 p-4">
-                <MarkdownContent>{output}</MarkdownContent>
+                {output ? <MarkdownContent>{output}</MarkdownContent> : null}
+                {loading ? (
+                  <p className="mt-2 text-sm text-slate-500">
+                    {!output ? "Running inference" : "Streaming"}
+                    <span className="ml-1 inline-block h-4 w-0.5 animate-pulse bg-teal-400 align-middle" />
+                  </p>
+                ) : null}
               </div>
             ) : (
               <div className="flex flex-1 items-center justify-center text-sm text-slate-600">

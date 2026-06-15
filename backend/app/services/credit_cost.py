@@ -13,6 +13,13 @@ def estimate_prompt_tokens(prompt: str) -> int:
     return max(1, math.ceil(len(text) / 4))
 
 
+def estimate_completion_tokens(text: str) -> int:
+    """Rough completion token count when the inference API omits usage."""
+    if not text.strip():
+        return 0
+    return max(1, math.ceil(len(text) / 4))
+
+
 def compute_credit_cost(total_tokens: int, rate: float | None = None) -> int:
     """Credits charged for a completed generation."""
     rate = settings.trustai_credit_rate if rate is None else rate

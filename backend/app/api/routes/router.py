@@ -1,11 +1,13 @@
 from __future__ import annotations
 
 import io
+import json
 import zipfile
 from typing import Any
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException
+from fastapi.responses import StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.schemas.generate import GenerateDemoRequest, GenerateDemoResponse
@@ -26,6 +28,55 @@ from app.services.integrity_service import batch_integrity_status
 router = APIRouter()
 
 
+def _generation_params(body: GenerateDemoRequest) -> GenerationParams:
+    return GenerationParams(
+        temperature=body.parameters.temperature,
+        max_tokens=body.parameters.max_tokens,
+        top_p=body.parameters.top_p,
+        seed=body.parameters.seed,
+    )
+
+
+@router.post("/generate-demo/stream")
+async def generate_demo_stream(
+    body: GenerateDemoRequest,
+    gen_service: GenerationService = Depends(get_generation_service),
+    user: UserModel = Depends(get_current_user),
+) -> StreamingResponse:
+    params = _generation_params(body)
+
+    async def event_stream():
+        try:
+            async for event in gen_service.stream_generate_demo(body.prompt, params, user_id=user.id):
+                yield (
+                    f"event: {event['event']}\n"
+                    f"data: {json.dumps(event['data'])}\n\n"
+                )
+        except ModelNotLoadedError as exc:
+            yield f"event: error\ndata: {json.dumps({'detail': str(exc)})}\n\n"
+        except InsufficientCreditsError as exc:
+            yield f"event: error\ndata: {json.dumps({'detail': str(exc), 'status': 402})}\n\n"
+        except ConnectionError as exc:
+            yield f"event: error\ndata: {json.dumps({'detail': str(exc)})}\n\n"
+        except OSError as exc:
+            yield (
+                "event: error\n"
+                f"data: {json.dumps({'detail': f'Inference failed ({exc}). Use TRUSTAI_INFERENCE_BACKEND=lmstudio with LM Studio server running.'})}\n\n"
+            )
+        except Exception as exc:
+            yield f"event: error\ndata: {json.dumps({'detail': str(exc)})}\n\n"
+
+    return StreamingResponse(
+        event_stream(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        },
+    )
+
+
 @router.post("/generate-demo", response_model=GenerateDemoResponse)
 async def generate_demo(
     body: GenerateDemoRequest,
@@ -33,12 +84,7 @@ async def generate_demo(
     gen_service: GenerationService = Depends(get_generation_service),
     user: UserModel = Depends(get_current_user),
 ) -> GenerateDemoResponse:
-    params = GenerationParams(
-        temperature=body.parameters.temperature,
-        max_tokens=body.parameters.max_tokens,
-        top_p=body.parameters.top_p,
-        seed=body.parameters.seed,
-    )
+    params = _generation_params(body)
     try:
         result = await gen_service.generate_demo(body.prompt, params, user_id=user.id)
     except ModelNotLoadedError as exc:
