@@ -8,6 +8,7 @@
     "dev:frontend": "powershell -ExecutionPolicy Bypass -File scripts/start-frontend.ps1",
     "free-port": "powershell -ExecutionPolicy Bypass -File scripts/free-port.ps1",
     "smoke-test": "powershell -ExecutionPolicy Bypass -File scripts/smoke-test.ps1",
-    "pilot-setup": "powershell -ExecutionPolicy Bypass -File scripts/pilot-setup.ps1"
+    "pilot-setup": "powershell -ExecutionPolicy Bypass -File scripts/pilot-setup.ps1",
+    "prod:backend": "powershell -ExecutionPolicy Bypass -File scripts/start-prod-backend.ps1"
   }
 }

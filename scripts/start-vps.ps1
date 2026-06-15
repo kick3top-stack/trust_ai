@@ -58,7 +58,7 @@ Write-Host "Press Ctrl+C to stop both services." -ForegroundColor DarkGray
 
 # Load .env into process
 Get-Content ".env" | ForEach-Object {
-    if ($_ -match "^\s*([^#][^=]+)=(.*)$") {
+    if ($_ -match '^\s*([^#][^=]+)=(.*)$') {
         [System.Environment]::SetEnvironmentVariable($matches[1].Trim(), $matches[2].Trim(), "Process")
     }
 }
