@@ -4,7 +4,7 @@ A working demo of **receipts for AI generations**.
 
 When you run a model, credits go down. Usually that is the whole story: you trust the platform, or you post on Discord and hope someone replies. TrustAI tries a different approach. Every generation gets a **receipt** that records what you asked for, which model ran, what you were charged, and a signed proof you can check later.
 
-The goal is not to replace Higgsfield, fal.ai, or Leonardo. It is to show what AI platforms *could* offer: clearer billing, easier disputes, and records users can actually verify.
+It is to show what AI platforms *could* offer: clearer billing, easier disputes, and records users can actually verify.
 
 **Live demo:** https://trust-ai-seven.vercel.app/
 
