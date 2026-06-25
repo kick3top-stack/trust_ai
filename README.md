@@ -44,7 +44,7 @@ npm run smoke-test     # verify auth/billing/disputes (backend must be running)
 
 See [docs/support-playbook.md](docs/support-playbook.md) for handling billing disputes.
 
-### LM Studio (recommended on VPS)
+### LM Studio
 
 1. Load `Qwen2.5-Coder-0.5B-Instruct-Q8_0` in **LM Studio**
 2. **Local Server** → Start (port `1234`)
