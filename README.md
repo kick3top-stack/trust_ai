@@ -8,6 +8,52 @@ It is to show what AI platforms *could* offer: clearer billing, easier disputes,
 
 **Live demo:** https://trust-ai-seven.vercel.app/
 
+## How it works
+
+```mermaid
+flowchart TD
+  A[User: prompt + params] --> B{Balance >= estimated cost?}
+  B -->|No| X[Reject: insufficient credits]
+  B -->|Yes| C[Run inference via LM Studio]
+  C --> D[Hash prompt + response SHA256]
+  D --> E[Count tokens]
+  E --> F["credit_cost = ceil(tokens × rate), min 1"]
+  F --> G{Balance >= actual cost?}
+  G -->|No| X
+  G -->|Yes| H[Build canonical receipt payload]
+  H --> I["receipt_hash = SHA256(canonical JSON)"]
+  I --> J[Append hash as Merkle leaf]
+  J --> K{Batch full or timer?}
+  K -->|No| L[Return receipt + Merkle proof]
+  K -->|Yes| M["merkle_root = SHA256 tree(leaves)"]
+  M --> N[Sign root with Ed25519]
+  N --> L
+  L --> O[Deduct credits + write ledger row]
+```
+
+## Verification
+
+Anyone can check a receipt package offline or via `/verify`:
+
+```mermaid
+flowchart TD
+  A[Input: receipt + merkle_proof + root_signature] --> B[Recompute receipt_hash from canonical fields]
+  B --> C{Hash matches?}
+  C --> D[Verify Merkle path to root]
+  D --> E{Root matches signed root?}
+  E --> F[Verify Ed25519 signature on root]
+  F --> G{credit_cost > 0?}
+  G --> H{Model metadata present?}
+  H --> I[All checks pass → valid]
+  C -->|Fail| J[Partial trust: batch OK but receipt copy tampered]
+  D -->|Fail| K[Not included in batch]
+  F -->|Fail| L[Forged or unknown batch]
+```
+
+**Credits:** `max(1, ceil((prompt_tokens + completion_tokens) × TRUSTAI_CREDIT_RATE))`. Before inference, the Playground estimates cost from prompt length + `max_tokens`.
+
+*MVP does not cryptographically prove the model actually ran — only that the platform recorded and signed a consistent receipt.*
+
 ## The problem
 
 People keep running into the same issues across AI tools:
@@ -28,6 +74,8 @@ TrustAI is a small MVP that tackles those gaps on a single stack you can run you
 5. **Dispute** — flag a charge from the receipt page; admin resolves it in Support.
 
 Under the hood, receipts are hashed, batched into Merkle trees, and signed with Ed25519. That part matters for integrity, but the user-facing idea is simple: **a receipt for every run**.
+
+
 
 ## Stack
 
