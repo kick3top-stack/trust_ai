@@ -61,7 +61,15 @@ npm run dev
 | API | http://localhost:8000/api/v1 |
 | Health | http://localhost:8000/api/v1/health |
 
-Default admin (created on first boot): `admin@trustai.local` / `admin123`
+
+**Template accounts**:
+
+```
+Admin: admin@trustai.local
+Password: admin123
+User: user1@example.com
+Password: 123456
+```
 
 Change `TRUSTAI_JWT_SECRET` and the admin password before exposing this publicly.
 
