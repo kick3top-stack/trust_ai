@@ -84,9 +84,11 @@ export default function LoginPage() {
               Register
             </Link>
           </p>
-          <p className="text-center text-xs text-slate-600">
-            Default admin: admin@trustai.local / admin123
-          </p>
+          {process.env.NODE_ENV === "development" && (
+            <p className="text-center text-xs text-slate-600">
+              Dev default: admin@trustai.local / admin123 (change before deploy)
+            </p>
+          )}
         </div>
       </form>
     </div>
